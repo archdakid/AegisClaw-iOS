@@ -89,8 +89,7 @@ let package = Package(
                 "AegisContextMemory",
                 "AegisHarness",
                 "AegisTools",
-                "AegisGateway",
-                "AegisClawApp"
+                "AegisGateway"
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         )

@@ -49,6 +49,7 @@ jobs:
 
       - name: Compile xtool 'AegisClaw' SwiftPM Product for iOS Simulator
         run: |
+          set -o pipefail
           xcodebuild build \
             -scheme AegisClaw \
             -destination 'generic/platform=iOS Simulator' \
@@ -57,10 +58,15 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGN_ENTITLEMENTS="" \
-            COMPILER_INDEX_STORE_ENABLE=NO
+            COMPILER_INDEX_STORE_ENABLE=NO 2>&1 | tee xcode_spm.log || {
+              ERR=$(tail -n 35 xcode_spm.log | tr '\n' ' ' | sed 's/"/\\"/g')
+              echo "::error title=XcodeSPMBuildError::$ERR"
+              exit 1
+            }
 
       - name: Generate Xcode Project via XcodeGen & Compile Full iOS App Bundle
         run: |
+          set -o pipefail
           if ! command -v xcodegen &> /dev/null; then
             brew install xcodegen
           fi
@@ -75,4 +81,8 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGN_ENTITLEMENTS="" \
             AD_HOC_CODE_SIGNING_ALLOWED=YES \
-            COMPILER_INDEX_STORE_ENABLE=NO
+            COMPILER_INDEX_STORE_ENABLE=NO 2>&1 | tee xcode_proj.log || {
+              ERR=$(tail -n 35 xcode_proj.log | tr '\n' ' ' | sed 's/"/\\"/g')
+              echo "::error title=XcodeProjBuildError::$ERR"
+              exit 1
+            }
