@@ -35,8 +35,17 @@ jobs:
 
       - name: Build & Run Swift 6 Strict-Concurrency Package Tests (All 8 Tests)
         run: |
-          swift build
-          swift test --parallel
+          set -o pipefail
+          swift build 2>&1 | tee build.log || {
+            ERR=$(tail -n 35 build.log | tr '\n' ' ' | sed 's/"/\\"/g')
+            echo "::error title=SwiftBuildError::$ERR"
+            exit 1
+          }
+          swift test --parallel 2>&1 | tee test.log || {
+            ERR=$(tail -n 35 test.log | tr '\n' ' ' | sed 's/"/\\"/g')
+            echo "::error title=SwiftTestError::$ERR"
+            exit 1
+          }
 
       - name: Compile xtool 'AegisClaw' SwiftPM Product for iOS Simulator
         run: |
