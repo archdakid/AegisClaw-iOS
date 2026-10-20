@@ -250,7 +250,8 @@ final class AegisClawTests: XCTestCase {
         let downloader = Gemma4ModelDownloader(modelsRootDirectory: paths.modelsDir)
         let repoID = Gemma4RuntimeFormat.mlx4BitE4B.rawValue
 
-        XCTAssertNil(await downloader.verifiedOnDeviceManifest(forRepoID: repoID))
+        let initialManifest = await downloader.verifiedOnDeviceManifest(forRepoID: repoID)
+        XCTAssertNil(initialManifest)
 
         let manifest = try await downloader.downloadModelToDevice(
             format: .mlx4BitE4B,
