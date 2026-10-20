@@ -718,7 +718,7 @@ public enum SkillGuardScanner {
 
 public actor SkillManagerService {
     private let skillsRoot: URL
-    private var cache: [String: SkillDescriptor]?
+    private var cache: [SkillDescriptor]?
 
     public init(skillsRoot: URL) {
         self.skillsRoot = skillsRoot
