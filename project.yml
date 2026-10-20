@@ -15,7 +15,10 @@ targets:
     deploymentTarget: "18.0"
     sources:
       - path: Sources/AegisClawApp
-      - path: Resources
+      - path: Resources/Skills
+        type: folder
+        buildPhase: resources
+      - path: Resources/JS
         type: folder
         buildPhase: resources
     info:
@@ -25,11 +28,12 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.quincearch.AegisClaw
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Config/Info.plist
         TARGETED_DEVICE_FAMILY: "1"
         SWIFT_VERSION: "6.0"
         SWIFT_STRICT_CONCURRENCY: complete
         ENABLE_USER_SCRIPT_SANDBOXING: NO
-        INFOPLIST_FILE: Config/Info.plist
         CODE_SIGN_ENTITLEMENTS: Config/AegisClaw.entitlements
         SUPPORTS_MACCATALYST: NO
         CODE_SIGNING_ALLOWED: NO
