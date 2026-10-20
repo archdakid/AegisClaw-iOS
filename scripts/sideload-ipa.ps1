@@ -22,10 +22,30 @@ Write-Host "==========================================================" -Foregro
 Write-Host "`n[1/2] Checking for compiled iOS IPA ($IpaPath)..." -ForegroundColor Yellow
 if (-not (Test-Path $IpaPath)) {
     Write-Host "Local IPA not found at '$IpaPath'. Checking GitHub Actions for latest 'AegisClaw-unsigned-ipa' artifact..." -ForegroundColor Cyan
-    $credInput = "protocol=https`nhost=github.com`n`n"
-    $credOut = $credInput | git credential fill 2>$null | Out-String
-    if ($credOut -match "password=([^\r\n]+)") {
-        $ghToken = $Matches[1].Trim()
+    $ghToken = $null
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = "C:\Program Files\Git\mingw64\bin\git-credential-manager.exe"
+        $psi.Arguments = "get"
+        $psi.RedirectStandardInput = $true
+        $psi.RedirectStandardOutput = $true
+        $psi.UseShellExecute = $false
+        $p = [System.Diagnostics.Process]::Start($psi)
+        $p.StandardInput.WriteLine("protocol=https")
+        $p.StandardInput.WriteLine("host=github.com")
+        $p.StandardInput.WriteLine("")
+        $p.StandardInput.Flush()
+        $p.StandardInput.Close()
+        $credOut = $p.StandardOutput.ReadToEnd()
+        $p.WaitForExit()
+        if ($credOut -match "password=([^\r\n]+)") {
+            $ghToken = $Matches[1].Trim()
+        }
+    } catch {
+        Write-Warning "Failed to query Git Credential Manager: $($_.Exception.Message)"
+    }
+
+    if ($ghToken) {
         $headers = @{
             Authorization = "Bearer $ghToken"
             Accept        = "application/vnd.github+json"
@@ -36,7 +56,25 @@ if (-not (Test-Path $IpaPath)) {
             $artifact = $artifactsResp.artifacts[0]
             $zipPath = Join-Path $env:TEMP "AegisClaw-unsigned-ipa.zip"
             Write-Host "Downloading artifact #$($artifact.id) (created $($artifact.created_at))..." -ForegroundColor Cyan
-            Invoke-WebRequest -Uri $artifact.archive_download_url -Headers $headers -OutFile $zipPath
+            
+            # Use HttpClientHandler to avoid redirect Authorization forwarding to AWS S3 / Azure blob
+            $handler = New-Object System.Net.Http.HttpClientHandler
+            $handler.AllowAutoRedirect = $false
+            $client = New-Object System.Net.Http.HttpClient($handler)
+            $req = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Get, $artifact.archive_download_url)
+            $req.Headers.Add("Authorization", "Bearer $ghToken")
+            $req.Headers.Add("User-Agent", "AegisClaw-xtool-Sideloader")
+            $resp = $client.SendAsync($req).Result
+
+            $downloadUri = $null
+            if ($resp.StatusCode -eq [System.Net.HttpStatusCode]::Found -or $resp.StatusCode -eq [System.Net.HttpStatusCode]::SeeOther -or $resp.StatusCode -eq [System.Net.HttpStatusCode]::MovedPermanently) {
+                $downloadUri = $resp.Headers.Location.AbsoluteUri
+            } else {
+                $downloadUri = $artifact.archive_download_url
+            }
+
+            $webClient = New-Object System.Net.WebClient
+            $webClient.DownloadFile($downloadUri, $zipPath)
             Expand-Archive -Path $zipPath -DestinationPath "." -Force
             Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
         }

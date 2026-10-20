@@ -1,6 +1,6 @@
 name: AegisClaw
 options:
-  bundleIdPrefix: com.aegisclaw
+  bundleIdPrefix: com.quincearch
   deploymentTarget:
     iOS: "18.0"
   xcodeVersion: "16.0"
@@ -26,13 +26,18 @@ targets:
       path: Config/AegisClaw.entitlements
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.aegisclaw.ios
+        PRODUCT_BUNDLE_IDENTIFIER: com.quincearch.AegisClaw
+        TARGETED_DEVICE_FAMILY: "1"
         SWIFT_VERSION: "6.0"
         SWIFT_STRICT_CONCURRENCY: complete
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         INFOPLIST_FILE: Config/Info.plist
         CODE_SIGN_ENTITLEMENTS: Config/AegisClaw.entitlements
         SUPPORTS_MACCATALYST: NO
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGN_IDENTITY: ""
+        AD_HOC_CODE_SIGNING_ALLOWED: YES
     dependencies:
       - package: AegisClawWorkspace
         product: AegisClawKit

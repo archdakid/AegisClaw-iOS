@@ -1,5 +1,5 @@
 version: 1
-bundleID: com.aegisclaw.ios
+bundleID: com.quincearch.AegisClaw
 product: AegisClaw
 infoPath: Config/XtoolInfo.plist
 resources:
