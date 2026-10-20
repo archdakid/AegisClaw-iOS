@@ -92,6 +92,20 @@ jobs:
             rm -rf ipa_stage/Payload/AegisClaw.app/Resources
           fi
 
+          # Ensure Info.plist has native screen resolution UILaunchScreen configuration
+          python3 -c "
+import plistlib, os
+app_plist = 'ipa_stage/Payload/AegisClaw.app/Info.plist'
+if os.path.exists(app_plist):
+    p = plistlib.load(open(app_plist, 'rb'))
+    if os.path.exists('Config/Info.plist'):
+        cfg = plistlib.load(open('Config/Info.plist', 'rb'))
+        for k, v in cfg.items():
+            if k not in p or k in ['UILaunchScreen', 'UIFileSharingEnabled', 'LSSupportsOpeningDocumentsInPlace', 'UISupportedInterfaceOrientations']:
+                p[k] = v
+    p['UILaunchScreen'] = {'UIColorName': 'systemBackgroundColor'}
+    plistlib.dump(p, open(app_plist, 'wb'), fmt=plistlib.FMT_XML)
+"
           # Ensure Info.plist is in XML format for xtool bundle ID manipulation
           plutil -convert xml1 ipa_stage/Payload/AegisClaw.app/Info.plist
 

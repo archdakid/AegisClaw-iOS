@@ -26,6 +26,27 @@ def clean_ipa(ipa_path, output_path=None):
         info_plist_bytes = zin.read(info_plist_entry) if info_plist_entry else None
         if info_plist_bytes:
             parsed = plistlib.loads(info_plist_bytes)
+
+            # Locate and merge Config/Info.plist to guarantee modern screen adaptation & permissions
+            repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            config_plist = os.path.join(repo_root, "Config", "Info.plist")
+            if os.path.exists(config_plist):
+                with open(config_plist, "rb") as cf:
+                    cfg_parsed = plistlib.load(cf)
+                    for k, v in cfg_parsed.items():
+                        # Do not override binary executable or bundle ID if already set
+                        if k in ["CFBundleExecutable", "CFBundleIdentifier"] and k in parsed:
+                            continue
+                        if k not in parsed or k in ["UILaunchScreen", "UIFileSharingEnabled", "LSSupportsOpeningDocumentsInPlace", "UISupportedInterfaceOrientations"]:
+                            parsed[k] = v
+
+            # Mandatory UILaunchScreen dictionary with UIColorName so iOS activates native screen resolution (prevents zoom/letterbox)
+            if "UILaunchScreen" not in parsed or not isinstance(parsed["UILaunchScreen"], dict) or not parsed["UILaunchScreen"]:
+                parsed["UILaunchScreen"] = {"UIColorName": "systemBackgroundColor"}
+
+            if "UISupportedInterfaceOrientations" not in parsed:
+                parsed["UISupportedInterfaceOrientations"] = ["UIInterfaceOrientationPortrait"]
+
             xml_plist = plistlib.dumps(parsed, fmt=plistlib.FMT_XML)
         else:
             xml_plist = None

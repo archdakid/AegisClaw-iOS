@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import AegisCore
 
 // MARK: - Streaming Events & Language Model Contract
@@ -266,8 +269,8 @@ public enum Gemma4RuntimeFormat: String, Codable, Sendable, CaseIterable, Identi
 
     public var minimumFreeDiskBytes: Int64 {
         switch self {
-        case .mlx4BitE2BFallback: return 1_600_000_000
-        default: return 3_000_000_000
+        case .mlx4BitE2BFallback: return 1_400_000_000
+        default: return 2_400_000_000
         }
     }
 
@@ -371,10 +374,38 @@ public actor Gemma4ModelDownloader {
     private let modelsRootDirectory: URL
     private let urlSession: URLSession
 
+    #if canImport(FoundationNetworking)
+    public init(modelsRootDirectory: URL, urlSession: URLSession = URLSession(configuration: .default)) {
+        self.modelsRootDirectory = modelsRootDirectory
+        self.urlSession = urlSession
+        try? FileManager.default.createDirectory(at: modelsRootDirectory, withIntermediateDirectories: true)
+    }
+    #else
     public init(modelsRootDirectory: URL, urlSession: URLSession = .shared) {
         self.modelsRootDirectory = modelsRootDirectory
         self.urlSession = urlSession
         try? FileManager.default.createDirectory(at: modelsRootDirectory, withIntermediateDirectories: true)
+    }
+    #endif
+
+    /// Purges stale partial downloads (.part or .tmp files) from the temporary directory and model directory.
+    public func purgeTemporaryDownloadArtifacts() {
+        let fm = FileManager.default
+        let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory())
+        if let items = try? fm.contentsOfDirectory(at: tmpDir, includingPropertiesForKeys: nil) {
+            for item in items {
+                let name = item.lastPathComponent
+                if name.contains("CFNetworkDownload") || name.hasSuffix(".tmp") || name.hasSuffix(".part") {
+                    try? fm.removeItem(at: item)
+                }
+            }
+        }
+        if let subpaths = try? fm.subpathsOfDirectory(atPath: modelsRootDirectory.path) {
+            for sub in subpaths where sub.hasSuffix(".part") || sub.hasSuffix(".tmp") {
+                let p = modelsRootDirectory.appendingPathComponent(sub)
+                try? fm.removeItem(at: p)
+            }
+        }
     }
 
     /// Returns the local directory for a given Hugging Face repository ID (e.g. `unsloth/gemma-4-E4B-it-UD-MLX-4bit`).
@@ -406,12 +437,14 @@ public actor Gemma4ModelDownloader {
 
     /// Queries free storage capacity on the iOS APFS volume before starting a multi-gigabyte model download.
     public func checkAvailableDiskBytes() -> Int64 {
+        #if os(iOS) || os(macOS)
         if let values = try? modelsRootDirectory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]),
            let available = values.volumeAvailableCapacityForImportantUsage {
             return available
         }
+        #endif
         if let attrs = try? FileManager.default.attributesOfFileSystem(forPath: modelsRootDirectory.path),
-           let freeNumber = attrs[.systemFreeSize] as? NSNumber {
+           let freeNumber = attrs[FileAttributeKey.systemFreeSize] as? NSNumber {
             return freeNumber.int64Value
         }
         return 10_000_000_000 // Fallback when sandboxed statfs is unavailable
@@ -423,6 +456,7 @@ public actor Gemma4ModelDownloader {
         format: Gemma4RuntimeFormat,
         hfBearerToken: String? = nil
     ) async -> [String] {
+        #if os(iOS) || os(macOS)
         let apiString = "https://huggingface.co/api/models/\(format.rawValue)"
         guard let apiURL = URL(string: apiString) else {
             return format.defaultRequiredFiles
@@ -448,16 +482,21 @@ public actor Gemma4ModelDownloader {
         } catch {
             return format.defaultRequiredFiles
         }
+        #else
+        return format.defaultRequiredFiles
+        #endif
     }
 
     /// Downloads the selected Gemma 4 model directly from Hugging Face Hub to the iOS device's App Group workspace,
-    /// supporting HTTP Range resume for `.part` files and writing `model_manifest.json` upon SHA-256 verification.
+    /// streaming downloads directly to destination files and writing `model_manifest.json` upon SHA-256 verification.
     public func downloadModelToDevice(
         format: Gemma4RuntimeFormat = .mlx4BitE4B,
         hfBearerToken: String? = nil,
         simulateInCI: Bool = false,
         onProgress: @Sendable (ModelDownloadProgress) async -> Void = { _ in }
     ) async throws -> OnDeviceModelManifest {
+        purgeTemporaryDownloadArtifacts()
+
         let repoID = format.rawValue
         let availableBytes = checkAvailableDiskBytes()
         if availableBytes < format.minimumFreeDiskBytes && !simulateInCI {
@@ -497,20 +536,22 @@ public actor Gemma4ModelDownloader {
                 withIntermediateDirectories: true
             )
 
-            let fileData: Data
+            let fileSize: Int64
             if simulateInCI {
                 // Deterministic synthetic model shard & config generation for offline CI testing
                 if fileName == "config.json" {
                     let cfg = """
                     {"model_type":"gemma4","architectures":["Gemma4ForConditionalGeneration"],"hidden_size":2560,"num_hidden_layers":42,"max_position_embeddings":131072,"per_layer_embeddings":true,"quantization":{"bits":4,"group_size":64}}
                     """
-                    fileData = Data(cfg.utf8)
+                    try cfg.write(to: destinationURL, atomically: true, encoding: .utf8)
                 } else {
-                    fileData = Data("AEGIS_GEMMA4_E4B_SHARD_\(fileName)_\(repoID)".utf8)
+                    let fakeData = Data("AEGIS_GEMMA4_E4B_SHARD_\(fileName)_\(repoID)".utf8)
+                    try fakeData.write(to: destinationURL)
                 }
-                try fileData.write(to: destinationURL, options: .atomic)
+                let attrs = try? FileManager.default.attributesOfItem(atPath: destinationURL.path)
+                fileSize = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
             } else {
-                fileData = try await downloadSingleFileWithResume(
+                fileSize = try await downloadSingleFileWithMove(
                     repoID: repoID,
                     fileName: fileName,
                     destinationURL: destinationURL,
@@ -518,9 +559,8 @@ public actor Gemma4ModelDownloader {
                 )
             }
 
-            let fileSize = Int64(fileData.count)
             cumulativeBytes += fileSize
-            let checksum = CryptoUtils.sha256Hex(data: fileData)
+            let checksum = (try? CryptoUtils.sha256Hex(fileURL: destinationURL)) ?? ""
             downloadedEntries.append(DownloadedFileEntry(
                 relativeName: fileName,
                 sizeBytes: fileSize,
@@ -550,62 +590,49 @@ public actor Gemma4ModelDownloader {
         let manifestData = try encoder.encode(manifest)
         try manifestData.write(to: manifestURL(forRepoID: repoID), options: .atomic)
 
+        purgeTemporaryDownloadArtifacts()
         return manifest
     }
 
-    private func downloadSingleFileWithResume(
+    private func downloadSingleFileWithMove(
         repoID: String,
         fileName: String,
         destinationURL: URL,
         hfBearerToken: String?
-    ) async throws -> Data {
+    ) async throws -> Int64 {
+        #if os(iOS) || os(macOS)
         let encodedFile = fileName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? fileName
         let urlString = "https://huggingface.co/\(repoID)/resolve/main/\(encodedFile)"
         guard let remoteURL = URL(string: urlString) else {
             throw ModelDownloadError.invalidRemoteURL(urlString)
         }
 
-        let partURL = destinationURL.appendingPathExtension("part")
-        var existingPartData = Data()
-        if FileManager.default.fileExists(atPath: partURL.path),
-           let partial = try? Data(contentsOf: partURL) {
-            existingPartData = partial
-        }
-
         var request = URLRequest(url: remoteURL)
-        request.timeoutInterval = 300
+        request.timeoutInterval = 600
         if let token = hfBearerToken, !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        if !existingPartData.isEmpty {
-            request.setValue("bytes=\(existingPartData.count)-", forHTTPHeaderField: "Range")
-        }
 
         let (tempFileURL, response) = try await urlSession.download(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw ModelDownloadError.httpTransferFailed(file: fileName, statusCode: -1)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            try? FileManager.default.removeItem(at: tempFileURL)
+            throw ModelDownloadError.httpTransferFailed(file: fileName, statusCode: code)
         }
 
-        let downloadedChunk = try Data(contentsOf: tempFileURL)
-        var combinedData: Data
-        if http.statusCode == 206 && !existingPartData.isEmpty {
-            combinedData = existingPartData
-            combinedData.append(downloadedChunk)
-        } else if (200..<300).contains(http.statusCode) {
-            combinedData = downloadedChunk
-        } else {
-            try? chunkSaveForResume(existingPartData + downloadedChunk, to: partURL)
-            throw ModelDownloadError.httpTransferFailed(file: fileName, statusCode: http.statusCode)
+        let fm = FileManager.default
+        if fm.fileExists(atPath: destinationURL.path) {
+            try? fm.removeItem(at: destinationURL)
         }
+        try fm.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fm.moveItem(at: tempFileURL, to: destinationURL)
 
-        try combinedData.write(to: destinationURL, options: .atomic)
-        try? FileManager.default.removeItem(at: partURL)
-        return combinedData
-    }
-
-    private func chunkSaveForResume(_ data: Data, to partURL: URL) throws {
-        guard !data.isEmpty else { return }
-        try data.write(to: partURL, options: .atomic)
+        let attrs = try? fm.attributesOfItem(atPath: destinationURL.path)
+        let size = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
+        return size
+        #else
+        return 0
+        #endif
     }
 
     /// Removes a downloaded model from the device to reclaim storage.
@@ -750,8 +777,12 @@ public actor HybridFailoverRouter: LanguageModelProvider {
         request: ModelGenerationRequest,
         onEvent: @Sendable (AgentStreamEvent) async -> Void
     ) async throws -> ModelGenerationResponse {
-        let thermalState = ProcessInfo.processInfo.thermalState
-        if (thermalState == .critical || forceCloudFailover), let cloud = cloudFallbackProvider {
+        #if os(iOS) || os(macOS)
+        let isThermalCritical = ProcessInfo.processInfo.thermalState == .critical
+        #else
+        let isThermalCritical = false
+        #endif
+        if (isThermalCritical || forceCloudFailover), let cloud = cloudFallbackProvider {
             return try await cloud.generateTurn(request: request, onEvent: onEvent)
         }
         do {
