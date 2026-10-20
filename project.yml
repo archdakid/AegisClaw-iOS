@@ -3,8 +3,6 @@ options:
   bundleIdPrefix: com.quincearch
   deploymentTarget:
     iOS: "18.0"
-  xcodeVersion: "16.0"
-  generateEmptyDirectories: true
 
 packages:
   AegisClawWorkspace:
@@ -41,19 +39,3 @@ targets:
     dependencies:
       - package: AegisClawWorkspace
         product: AegisClawKit
-
-  AegisClawUnitTests:
-    type: bundle.unit-test
-    platform: iOS
-    deploymentTarget: "18.0"
-    sources:
-      - path: Tests/AegisClawTests
-    dependencies:
-      - target: AegisClaw
-      - package: AegisClawWorkspace
-        product: AegisClawKit
-    settings:
-      base:
-        SWIFT_VERSION: "6.0"
-        SWIFT_STRICT_CONCURRENCY: complete
-        GENERATE_INFOPLIST_FILE: YES

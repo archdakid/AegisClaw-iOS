@@ -58,6 +58,7 @@ jobs:
           xcodebuild build \
             -project AegisClaw.xcodeproj \
             -scheme AegisClaw \
+            -sdk iphoneos \
             -destination "generic/platform=iOS" \
             -configuration Release \
             -derivedDataPath build_device \
