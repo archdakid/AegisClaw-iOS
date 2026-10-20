@@ -15,12 +15,17 @@ def merge_plist(source_path, target_path):
     for k, v in src.items():
         if k == 'CFBundleExecutable' and k in target:
             continue
+        if isinstance(v, str) and v.startswith('$('):
+            continue
         target[k] = v
+
+    if 'CFBundleIdentifier' not in target or target['CFBundleIdentifier'].startswith('$('):
+        target['CFBundleIdentifier'] = 'com.quincearch.AegisClaw'
 
     print(f"Target now has {len(target)} keys: {list(target.keys())}")
     with open(target_path, 'wb') as f:
-        plistlib.dump(target, f, fmt=plistlib.FMT_XML)
-    print("Successfully wrote merged plist in XML format.")
+        plistlib.dump(target, f, fmt=plistlib.FMT_BINARY)
+    print("Successfully wrote merged plist in binary format.")
 
 if __name__ == '__main__':
     if len(sys.argv) < 3:

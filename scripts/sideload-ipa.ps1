@@ -6,7 +6,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $false)]
-    [string]$IpaPath = "..\AegisClaw-unsigned.ipa",
+    [string]$IpaPath = "AegisClaw-unsigned.ipa",
 
     [Parameter(Mandatory = $false)]
     [string]$Distro = "Ubuntu"
@@ -57,24 +57,17 @@ if (-not (Test-Path $IpaPath)) {
             $zipPath = Join-Path $env:TEMP "AegisClaw-unsigned-ipa.zip"
             Write-Host "Downloading artifact #$($artifact.id) (created $($artifact.created_at))..." -ForegroundColor Cyan
             
-            # Use HttpClientHandler to avoid redirect Authorization forwarding to AWS S3 / Azure blob
-            $handler = New-Object System.Net.Http.HttpClientHandler
-            $handler.AllowAutoRedirect = $false
-            $client = New-Object System.Net.Http.HttpClient($handler)
-            $req = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Get, $artifact.archive_download_url)
+            # Use HttpWebRequest without auto-redirect to capture redirect URL without forwarding Authorization header
+            $req = [System.Net.HttpWebRequest]::Create($artifact.archive_download_url)
             $req.Headers.Add("Authorization", "Bearer $ghToken")
-            $req.Headers.Add("User-Agent", "AegisClaw-xtool-Sideloader")
-            $resp = $client.SendAsync($req).Result
+            $req.UserAgent = "AegisClaw-xtool-Sideloader"
+            $req.AllowAutoRedirect = $false
+            $resp = $req.GetResponse()
+            $redirectUri = $resp.GetResponseHeader("Location")
+            $resp.Close()
 
-            $downloadUri = $null
-            if ($resp.StatusCode -eq [System.Net.HttpStatusCode]::Found -or $resp.StatusCode -eq [System.Net.HttpStatusCode]::SeeOther -or $resp.StatusCode -eq [System.Net.HttpStatusCode]::MovedPermanently) {
-                $downloadUri = $resp.Headers.Location.AbsoluteUri
-            } else {
-                $downloadUri = $artifact.archive_download_url
-            }
-
-            $webClient = New-Object System.Net.WebClient
-            $webClient.DownloadFile($downloadUri, $zipPath)
+            $wc = New-Object System.Net.WebClient
+            $wc.DownloadFile($redirectUri, $zipPath)
             Expand-Archive -Path $zipPath -DestinationPath "." -Force
             Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
         }
