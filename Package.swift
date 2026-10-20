@@ -51,8 +51,8 @@ let package = Package(
         .target(
             name: "AegisContextMemory",
             dependencies: ["AegisCore", "AegisEdgeLLM"],
-            linkerSettings: [.linkedLibrary("sqlite3")],
-            swiftSettings: [.swiftLanguageMode(.v6)]
+            swiftSettings: [.swiftLanguageMode(.v6)],
+            linkerSettings: [.linkedLibrary("sqlite3")]
         ),
         .target(
             name: "AegisTools",
