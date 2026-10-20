@@ -18,6 +18,7 @@ targets:
     sources:
       - path: Sources/AegisClawApp
       - path: Resources
+        type: folder
         buildPhase: resources
     info:
       path: Config/Info.plist
