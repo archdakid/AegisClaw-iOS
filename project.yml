@@ -15,7 +15,10 @@ targets:
     deploymentTarget: "18.0"
     sources:
       - path: Sources/AegisClawApp
-      - path: Resources
+      - path: Resources/Skills
+        type: folder
+        buildPhase: resources
+      - path: Resources/JS
         type: folder
         buildPhase: resources
     info:

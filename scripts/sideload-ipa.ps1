@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    One-command helper to sign and sideload AegisClaw .ipa onto a USB-connected iPhone from Windows using xtool in WSL2 Ubuntu.
+    One-command helper to fetch, sanitize, sign and sideload AegisClaw .ipa onto a USB-connected iPhone from Windows using xtool in WSL2 Ubuntu.
 #>
 
 [CmdletBinding()]
@@ -9,7 +9,10 @@ param(
     [string]$IpaPath = "AegisClaw-unsigned.ipa",
 
     [Parameter(Mandatory = $false)]
-    [string]$Distro = "Ubuntu"
+    [string]$Distro = "Ubuntu",
+
+    [Parameter(Mandatory = $false)]
+    [switch]$ForceDownload
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,9 +22,9 @@ Write-Host " AegisClaw iOS Sideloader (Windows + WSL2 xtool 1.22.0)" -Foreground
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 # Step 1: Ensure .ipa exists locally (or auto-download from GitHub Actions)
-Write-Host "`n[1/2] Checking for compiled iOS IPA ($IpaPath)..." -ForegroundColor Yellow
-if (-not (Test-Path $IpaPath)) {
-    Write-Host "Local IPA not found at '$IpaPath'. Checking GitHub Actions for latest 'AegisClaw-unsigned-ipa' artifact..." -ForegroundColor Cyan
+Write-Host "`n[1/3] Checking for compiled iOS IPA ($IpaPath)..." -ForegroundColor Yellow
+if ($ForceDownload -or (-not (Test-Path $IpaPath))) {
+    Write-Host "Checking GitHub Actions for latest 'AegisClaw-unsigned-ipa' artifact..." -ForegroundColor Cyan
     $ghToken = $null
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -79,16 +82,33 @@ if (-not (Test-Path $IpaPath)) {
     exit 1
 }
 
-$resolvedWinPath = (Resolve-Path $IpaPath).Path
+# Step 2: Sanitize bundle layout (remove top-level Resources/ collision and ensure Info.plist is XML)
+Write-Host "`n[2/3] Sanitizing iOS bundle layout & verifying Info.plist format..." -ForegroundColor Yellow
+$scriptDir = $PSScriptRoot
+$repackScript = Join-Path $scriptDir "repack_clean.py"
+$cleanIpaPath = "AegisClaw-clean.ipa"
+
+if (Test-Path $repackScript) {
+    python $repackScript $IpaPath $cleanIpaPath
+    if ($LASTEXITCODE -ne 0 -or (-not (Test-Path $cleanIpaPath))) {
+        Write-Warning "Repack script exited with code $LASTEXITCODE; falling back to original $IpaPath"
+        $targetIpa = $IpaPath
+    } else {
+        $targetIpa = $cleanIpaPath
+    }
+} else {
+    $targetIpa = $IpaPath
+}
+
+$resolvedWinPath = (Resolve-Path $targetIpa).Path
 Write-Host "Ready to sideload: $resolvedWinPath" -ForegroundColor Green
 
 # Convert Windows path to WSL path
 $wslIpaPath = (wsl -d $Distro -e wslpath -u "$resolvedWinPath").Trim()
 
-# Step 2: Run the WSL2 bridge + auth check + xtool install inside a single persistent WSL2 session
-Write-Host "`n[2/2] Starting WSL2 usbmuxd bridge, Apple ID auth, and xtool install..." -ForegroundColor Yellow
+# Step 3: Run the WSL2 bridge + auth check + xtool install inside a single persistent WSL2 session
+Write-Host "`n[3/3] Starting WSL2 usbmuxd bridge, Apple ID auth, and xtool install..." -ForegroundColor Yellow
 
-$scriptDir = $PSScriptRoot
 $wslScriptDir = (wsl -d $Distro -e wslpath -u "$scriptDir").Trim()
 
 wsl -d $Distro -u root -- sed -i 's/\r$//' "$wslScriptDir/start-wsl-usbmuxd-bridge.sh" "$wslScriptDir/wsl-sideload.sh"

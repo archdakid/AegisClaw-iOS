@@ -15,9 +15,9 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Select Xcode 16.2 Toolchain & Verify iOS SDK
+      - name: Select Xcode 16.1 Toolchain & Verify iOS SDK
         run: |
-          sudo xcode-select -s /Applications/Xcode_16.2.app || sudo xcode-select -s /Applications/Xcode_16.1.app || sudo xcode-select -s /Applications/Xcode_16.app || sudo xcode-select -s /Applications/Xcode.app
+          sudo xcode-select -s /Applications/Xcode_16.1.app || sudo xcode-select -s /Applications/Xcode_16.app || sudo xcode-select -s /Applications/Xcode_16.2.app || sudo xcode-select -s /Applications/Xcode.app
           xcodebuild -version
           swift --version
           xcrun -sdk iphoneos -show-sdk-path
@@ -84,6 +84,16 @@ jobs:
 
           mkdir -p ipa_stage/Payload
           cp -R "$APP_PATH" ipa_stage/Payload/
+
+          # If Payload/AegisClaw.app/Resources exists, lift its contents to Payload/AegisClaw.app/ to avoid iOS CFBundle collision
+          if [ -d "ipa_stage/Payload/AegisClaw.app/Resources" ]; then
+            echo "Relocating nested Resources folder to app bundle root..."
+            cp -R ipa_stage/Payload/AegisClaw.app/Resources/* ipa_stage/Payload/AegisClaw.app/
+            rm -rf ipa_stage/Payload/AegisClaw.app/Resources
+          fi
+
+          # Ensure Info.plist is in XML format for xtool bundle ID manipulation
+          plutil -convert xml1 ipa_stage/Payload/AegisClaw.app/Info.plist
 
           cd ipa_stage
           zip -qry ../AegisClaw-unsigned.ipa Payload
