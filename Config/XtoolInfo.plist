@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDisplayName</key>
+    <string>AegisClaw</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>UIFileSharingEnabled</key>
+    <true/>
+    <key>LSSupportsOpeningDocumentsInPlace</key>
+    <true/>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>processing</string>
+        <string>fetch</string>
+        <string>audio</string>
+        <string>remote-notification</string>
+    </array>
+    <key>BGTaskSchedulerPermittedIdentifiers</key>
+    <array>
+        <string>com.aegisclaw.dreaming</string>
+        <string>com.aegisclaw.intents.check</string>
+    </array>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>AegisClaw inspects your schedule and creates calendar events when you ask your assistant to manage appointments.</string>
+    <key>NSRemindersFullAccessUsageDescription</key>
+    <string>AegisClaw reads and completes reminders to track your action items and standing intents.</string>
+    <key>NSContactsUsageDescription</key>
+    <string>AegisClaw resolves contact names, emails, and phone numbers locally on-device when drafting messages or scheduling meetings.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>AegisClaw uses the microphone for local on-device Whisper speech-to-text transcription and voice assistant interaction.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>AegisClaw transcribes spoken commands entirely on-device using Apple Neural Engine speech recognition.</string>
+    <key>NSFaceIDUsageDescription</key>
+    <string>AegisClaw uses FaceID to authorize sensitive tool executions such as sending messages, modifying calendar entries, or running remote SSH commands.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>AegisClaw uses your current location to provide contextual travel times, local search, and weather briefings.</string>
+</dict>
+</plist>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Mandatory for loading 3B-8B 4-bit LLM weights (>3.3GB Jetsam ceiling) -->
+    <key>com.apple.developer.kernel.increased-memory-limit</key>
+    <true/>
+    <key>com.apple.developer.kernel.extended-virtual-addressing</key>
+    <true/>
+    <!-- Shared container across Main App, Siri AppIntents, Share Extension, and Widgets -->
+    <key>com.apple.security.application-groups</key>
+    <array>
+        <string>group.com.aegisclaw.shared</string>
+    </array>
+</dict>
+</plist>

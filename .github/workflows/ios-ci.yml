@@ -1,0 +1,69 @@
+name: AegisClaw iOS Build, xtool Package & Test CI
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  swift-package-xtool-and-ios-build:
+    name: Swift 6 Tests, xtool Target Verification & Xcode iOS Build
+    runs-on: macos-15
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16+ Toolchain & Verify iOS SDK
+        run: |
+          XCODE_APP=$(ls -d /Applications/Xcode_16*.app /Applications/Xcode.app 2>/dev/null | head -n 1)
+          if [ -n "$XCODE_APP" ]; then
+            sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          fi
+          xcodebuild -version
+          swift --version
+          xcrun -sdk iphoneos -show-sdk-path
+
+      - name: Validate xtool.yml & Config/XtoolInfo.plist Structure
+        run: |
+          test -f xtool.yml
+          test -f Config/XtoolInfo.plist
+          plutil -lint Config/XtoolInfo.plist
+          plutil -lint Config/Info.plist
+          plutil -lint Config/AegisClaw.entitlements
+
+      - name: Build & Run Swift 6 Strict-Concurrency Package Tests (All 8 Tests)
+        run: |
+          swift build
+          swift test --parallel
+
+      - name: Compile xtool 'AegisClaw' SwiftPM Product for iOS Simulator
+        run: |
+          xcodebuild build \
+            -scheme AegisClaw \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            COMPILER_INDEX_STORE_ENABLE=NO
+
+      - name: Generate Xcode Project via XcodeGen & Compile Full iOS App Bundle
+        run: |
+          if ! command -v xcodegen &> /dev/null; then
+            brew install xcodegen
+          fi
+          xcodegen generate
+          xcodebuild build \
+            -project AegisClaw.xcodeproj \
+            -scheme AegisClaw \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            COMPILER_INDEX_STORE_ENABLE=NO

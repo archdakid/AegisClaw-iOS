@@ -1,0 +1,53 @@
+name: AegisClaw
+options:
+  bundleIdPrefix: com.aegisclaw
+  deploymentTarget:
+    iOS: "18.0"
+  xcodeVersion: "16.0"
+  generateEmptyDirectories: true
+
+packages:
+  AegisClawWorkspace:
+    path: .
+
+targets:
+  AegisClaw:
+    type: application
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: Sources/AegisClawApp
+      - path: Resources
+        buildPhase: resources
+    info:
+      path: Config/Info.plist
+    entitlements:
+      path: Config/AegisClaw.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.aegisclaw.ios
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        INFOPLIST_FILE: Config/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Config/AegisClaw.entitlements
+        SUPPORTS_MACCATALYST: NO
+    dependencies:
+      - package: AegisClawWorkspace
+        product: AegisClawKit
+
+  AegisClawUnitTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: Tests/AegisClawTests
+    dependencies:
+      - target: AegisClaw
+      - package: AegisClawWorkspace
+        product: AegisClawKit
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        GENERATE_INFOPLIST_FILE: YES

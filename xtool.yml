@@ -1,0 +1,10 @@
+version: 1
+bundleID: com.aegisclaw.ios
+product: AegisClaw
+infoPath: Config/XtoolInfo.plist
+resources:
+  - Resources/Skills
+  - Resources/JS
+# Uncomment entitlementsPath below when using xtool with a paid Apple Developer account (Login Mode 0: API Key)
+# to enable the 6 GB extended Jetsam memory ceiling and shared App Group container on physical iPhones:
+# entitlementsPath: Config/AegisClaw.entitlements

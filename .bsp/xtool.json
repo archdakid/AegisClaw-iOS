@@ -1,0 +1,14 @@
+{
+  "name": "xtool",
+  "version": "1.0.0",
+  "bspVersion": "2.0.0",
+  "languages": [
+    "swift"
+  ],
+  "argv": [
+    "/usr/bin/env",
+    "xtool",
+    "dev",
+    "build-server"
+  ]
+}
