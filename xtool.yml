@@ -1,6 +1,6 @@
 version: 1
 bundleID: com.quincearch.AegisClaw
-product: AegisClaw
+product: AegisClawLib
 infoPath: Config/XtoolInfo.plist
 resources:
   - Resources/Skills

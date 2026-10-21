@@ -10,7 +10,7 @@ let package = Package(
     products: [
         // Primary iOS App library product consumed by xtool (https://xtool.sh/documentation/xtool/)
         .library(
-            name: "AegisClaw",
+            name: "AegisClawLib",
             targets: ["AegisClawApp"]
         ),
         // Modular umbrella library consumed by XcodeGen (project.yml) and external extensions

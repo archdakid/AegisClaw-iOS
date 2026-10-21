@@ -19,6 +19,8 @@ jobs:
         run: |
           ls -ld /Applications/Xcode*.app || true
           sudo xcode-select -s /Applications/Xcode_16.2.app || sudo xcode-select -s /Applications/Xcode_16.1.app || sudo xcode-select -s /Applications/Xcode_16.3.app || sudo xcode-select -s /Applications/Xcode.app
+          sudo xcodebuild -runFirstLaunch || true
+          sudo xcodebuild -downloadPlatform iOS || true
           xcodebuild -version
           swift --version
           xcrun -sdk iphoneos -show-sdk-path
@@ -58,7 +60,7 @@ jobs:
           set -o pipefail
           xcodebuild build \
             -project AegisClaw.xcodeproj \
-            -scheme AegisClawApp \
+            -scheme AegisClaw \
             -sdk iphoneos \
             -destination "generic/platform=iOS" \
             -configuration Release \
