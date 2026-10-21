@@ -30,7 +30,7 @@ jobs:
           plutil -lint Config/Info.plist
           plutil -lint Config/AegisClaw.entitlements
 
-      - name: Build & Run Swift 6 Strict-Concurrency Package Tests (All 8 Tests)
+      - name: Build & Run Swift 6 Strict-Concurrency Package Tests (All 9 Tests)
         run: |
           set -o pipefail
           swift build 2>&1 | tee build.log || {

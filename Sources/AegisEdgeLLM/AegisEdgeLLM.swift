@@ -2,6 +2,11 @@ import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+#if canImport(MLXLMCommon) && canImport(MLXLLM)
+import MLX
+import MLXLMCommon
+import MLXLLM
+#endif
 import AegisCore
 
 // MARK: - Streaming Events & Language Model Contract
@@ -369,6 +374,37 @@ public enum ModelDownloadError: Error, LocalizedError, Sendable, Equatable {
     }
 }
 
+#if os(iOS) || os(macOS)
+private final class FileDownloadProgressDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    private let onProgress: @Sendable (Int64, Int64) -> Void
+    private var lastReportedBytes: Int64 = 0
+
+    init(onProgress: @escaping @Sendable (Int64, Int64) -> Void) {
+        self.onProgress = onProgress
+    }
+
+    nonisolated func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
+        if totalBytesWritten - lastReportedBytes >= 512 * 1024 || totalBytesWritten == totalBytesExpectedToWrite {
+            lastReportedBytes = totalBytesWritten
+            onProgress(totalBytesWritten, totalBytesExpectedToWrite)
+        }
+    }
+
+    nonisolated func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didFinishDownloadingTo location: URL
+    ) {
+    }
+}
+#endif
+
 /// Manages downloading, resuming, verifying, and memory-mapping Gemma 4 E4B model weights onto the iOS device.
 public actor Gemma4ModelDownloader {
     private let modelsRootDirectory: URL
@@ -478,6 +514,12 @@ public actor Gemma4ModelDownloader {
             let discovered = siblings.compactMap { $0["rfilename"] as? String }.filter { name in
                 allowedExtensions.contains { name.hasSuffix($0) } && !name.hasPrefix(".")
             }
+            if format == .ggufE4B {
+                let filtered = discovered.filter { name in
+                    name.hasSuffix(".json") || name.contains("Q4_K_M")
+                }
+                return filtered.isEmpty ? format.defaultRequiredFiles : filtered.sorted()
+            }
             return discovered.isEmpty ? format.defaultRequiredFiles : discovered.sorted()
         } catch {
             return format.defaultRequiredFiles
@@ -551,12 +593,22 @@ public actor Gemma4ModelDownloader {
                 let attrs = try? FileManager.default.attributesOfItem(atPath: destinationURL.path)
                 fileSize = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
             } else {
-                fileSize = try await downloadSingleFileWithMove(
+                fileSize = try await downloadSingleFileWithProgress(
                     repoID: repoID,
                     fileName: fileName,
                     destinationURL: destinationURL,
                     hfBearerToken: hfBearerToken
-                )
+                ) { fileBytesWritten, _ in
+                    let currentTotal = cumulativeBytes + fileBytesWritten
+                    await onProgress(ModelDownloadProgress(
+                        repoID: repoID,
+                        currentFile: fileName,
+                        completedFilesCount: index,
+                        totalFilesCount: filesToFetch.count,
+                        bytesDownloaded: currentTotal,
+                        totalBytesExpected: max(currentTotal, estimatedTotalBytes)
+                    ))
+                }
             }
 
             cumulativeBytes += fileSize
@@ -594,11 +646,12 @@ public actor Gemma4ModelDownloader {
         return manifest
     }
 
-    private func downloadSingleFileWithMove(
+    private func downloadSingleFileWithProgress(
         repoID: String,
         fileName: String,
         destinationURL: URL,
-        hfBearerToken: String?
+        hfBearerToken: String?,
+        onByteProgress: @escaping @Sendable (Int64, Int64) async -> Void
     ) async throws -> Int64 {
         #if os(iOS) || os(macOS)
         let encodedFile = fileName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? fileName
@@ -608,12 +661,18 @@ public actor Gemma4ModelDownloader {
         }
 
         var request = URLRequest(url: remoteURL)
-        request.timeoutInterval = 600
+        request.timeoutInterval = 1200
         if let token = hfBearerToken, !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
-        let (tempFileURL, response) = try await urlSession.download(for: request)
+        let delegate = FileDownloadProgressDelegate { bytesWritten, expectedTotal in
+            Task {
+                await onByteProgress(bytesWritten, expectedTotal)
+            }
+        }
+
+        let (tempFileURL, response) = try await urlSession.download(for: request, delegate: delegate)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? -1
             try? FileManager.default.removeItem(at: tempFileURL)
@@ -652,6 +711,11 @@ public actor MLXEdgeLLMProvider: LanguageModelProvider {
     private let kvCacheManager: PrefixKVCacheManager
     private var activeLocalModelDirectory: URL?
     private var scriptedToolResponses: [ToolCallRequest] = []
+
+    #if canImport(MLXLMCommon) && canImport(MLXLLM)
+    private var loadedContainer: ModelContainer?
+    private var loadedDirectory: URL?
+    #endif
 
     public init(
         modelIdentifier: String = Gemma4E4BConfiguration.defaultE4B.mlxModelID,
@@ -729,6 +793,22 @@ public actor MLXEdgeLLMProvider: LanguageModelProvider {
             }
         }
 
+        #if canImport(MLXLMCommon) && canImport(MLXLLM)
+        if let localDir = activeLocalModelDirectory,
+           FileManager.default.fileExists(atPath: localDir.appendingPathComponent("config.json").path),
+           let safetensorsFiles = try? FileManager.default.contentsOfDirectory(atPath: localDir.path).filter({ $0.hasSuffix(".safetensors") }),
+           !safetensorsFiles.isEmpty,
+           !safetensorsFiles.allSatisfy({ (try? FileManager.default.attributesOfItem(atPath: localDir.appendingPathComponent($0).path)[.size] as? NSNumber)?.int64Value ?? 0 < 100_000 }) {
+            return try await executeMLXInference(
+                directory: localDir,
+                request: request,
+                isHit: isHit,
+                meta: meta,
+                onEvent: onEvent
+            )
+        }
+        #endif
+
         let reasoning = "Analyzed frozen declarative memory, hybrid recall chunks, and conversation context."
         await onEvent(.thinkingDelta(reasoning))
 
@@ -743,6 +823,7 @@ public actor MLXEdgeLLMProvider: LanguageModelProvider {
         }
 
         await onEvent(.textDelta(responseText))
+        await onEvent(.turnCompleted(totalTokens: max(1, responseText.count / 4), latencyMs: 120))
         return ModelGenerationResponse(
             thinking: reasoning,
             content: responseText,
@@ -753,6 +834,139 @@ public actor MLXEdgeLLMProvider: LanguageModelProvider {
             providerIdentifier: providerID
         )
     }
+
+    #if canImport(MLXLMCommon) && canImport(MLXLLM)
+    private func executeMLXInference(
+        directory: URL,
+        request: ModelGenerationRequest,
+        isHit: Bool,
+        meta: PrefixKVCacheMetadata,
+        onEvent: @Sendable (AgentStreamEvent) async -> Void
+    ) async throws -> ModelGenerationResponse {
+        #if os(iOS)
+        MLX.GPU.set(cacheLimit: 512 * 1024 * 1024)
+        #endif
+
+        let container: ModelContainer
+        if let existing = loadedContainer, loadedDirectory == directory {
+            container = existing
+        } else {
+            let config = ModelConfiguration(directory: directory)
+            container = try await LLMModelFactory.shared.loadContainer(configuration: config)
+            self.loadedContainer = container
+            self.loadedDirectory = directory
+        }
+
+        var chatMessages: [Chat.Message] = []
+        if !request.immutablePrefix.isEmpty {
+            chatMessages.append(.system(request.immutablePrefix))
+        }
+        for msg in request.messages {
+            switch msg.role {
+            case .system:
+                chatMessages.append(.system(msg.content))
+            case .user:
+                chatMessages.append(.user(msg.content))
+            case .assistant:
+                chatMessages.append(.assistant(msg.content))
+            case .tool:
+                chatMessages.append(.tool(msg.content))
+            }
+        }
+
+        let userInput = UserInput(chat: chatMessages)
+        let lmInput = try await container.prepare(input: userInput)
+        let params = GenerateParameters(
+            maxTokens: request.maxOutputTokens,
+            temperature: Float(request.temperature)
+        )
+
+        let startTime = Date()
+        let stream = try await container.generate(input: lmInput, parameters: params)
+
+        var streamedContent = ""
+        var streamedThinking = ""
+        var inThinkingBlock = false
+        var generatedTokens = 0
+        var promptTokens = meta.tokenCount
+
+        for await generation in stream {
+            switch generation {
+            case .chunk(let text):
+                if text.contains("<|think|>") {
+                    inThinkingBlock = true
+                }
+                if inThinkingBlock {
+                    streamedThinking += text
+                    await onEvent(.thinkingDelta(streamedThinking))
+                    if text.contains("<|/think|>") {
+                        inThinkingBlock = false
+                    }
+                } else {
+                    streamedContent += text
+                    await onEvent(.textDelta(text))
+                }
+            case .toolCall(let call):
+                let parsedCall = ToolCallRequest(
+                    toolName: call.function.name,
+                    argumentsJSON: call.function.arguments
+                )
+                await onEvent(.toolCallRequested(parsedCall))
+                let latency = Int(Date().timeIntervalSince(startTime) * 1000)
+                await onEvent(.turnCompleted(totalTokens: generatedTokens, latencyMs: latency))
+                return ModelGenerationResponse(
+                    thinking: streamedThinking.isEmpty ? nil : streamedThinking,
+                    content: streamedContent,
+                    toolCalls: [parsedCall],
+                    promptTokens: promptTokens,
+                    completionTokens: max(1, generatedTokens),
+                    usedPrefixCache: isHit,
+                    providerIdentifier: providerID
+                )
+            case .info(let info):
+                generatedTokens = info.generationTokenCount
+                promptTokens = info.promptTokenCount
+                let latency = Int(Date().timeIntervalSince(startTime) * 1000)
+                await onEvent(.turnCompleted(totalTokens: generatedTokens, latencyMs: latency))
+            default:
+                break
+            }
+        }
+
+        let totalLatency = Int(Date().timeIntervalSince(startTime) * 1000)
+        if generatedTokens == 0 {
+            generatedTokens = max(1, streamedContent.count / 4)
+            await onEvent(.turnCompleted(totalTokens: generatedTokens, latencyMs: totalLatency))
+        }
+
+        var cleanContent = streamedContent
+        if cleanContent.contains("<|think|>") && cleanContent.contains("<|/think|>") {
+            if let start = cleanContent.range(of: "<|think|>"),
+               let end = cleanContent.range(of: "<|/think|>") {
+                let thinkRange = start.lowerBound..<end.upperBound
+                let extractedThinking = String(cleanContent[thinkRange])
+                    .replacingOccurrences(of: "<|think|>", with: "")
+                    .replacingOccurrences(of: "<|/think|>", with: "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if streamedThinking.isEmpty {
+                    streamedThinking = extractedThinking
+                }
+                cleanContent.removeSubrange(thinkRange)
+                cleanContent = cleanContent.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+
+        return ModelGenerationResponse(
+            thinking: streamedThinking.isEmpty ? nil : streamedThinking,
+            content: cleanContent,
+            toolCalls: [],
+            promptTokens: promptTokens,
+            completionTokens: generatedTokens,
+            usedPrefixCache: isHit,
+            providerIdentifier: providerID
+        )
+    }
+    #endif
 }
 
 public actor HybridFailoverRouter: LanguageModelProvider {

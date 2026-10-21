@@ -40,6 +40,8 @@ targets:
         CODE_SIGNING_REQUIRED: NO
         CODE_SIGN_IDENTITY: ""
         AD_HOC_CODE_SIGNING_ALLOWED: YES
+        SWIFT_OBJC_INTEROP_MODE: objcxx
+        CLANG_ENABLE_MODULES: YES
     dependencies:
       - package: AegisClawWorkspace
         product: AegisClawKit

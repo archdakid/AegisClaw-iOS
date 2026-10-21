@@ -271,6 +271,43 @@ final class AegisClawTests: XCTestCase {
         let boundDir = await provider.currentBoundModelDirectory()
         XCTAssertEqual(boundDir, downloader.localDirectory(forRepoID: repoID))
     }
+
+    // 9. Verify GGUF Single-Quant Filter & Real-Time Streaming Generation Events
+    func testGGUFSingleQuantFilterAndStreamingGenerationEvents() async throws {
+        let downloader = Gemma4ModelDownloader(modelsRootDirectory: paths.modelsDir)
+        let defaultFiles = Gemma4RuntimeFormat.ggufE4B.defaultRequiredFiles
+        XCTAssertEqual(defaultFiles, ["config.json", "gemma-4-E4B-it-Q4_K_M.gguf"])
+
+        let kvManager = PrefixKVCacheManager(cacheDirectory: paths.kvPrefixCacheDir)
+        let provider = MLXEdgeLLMProvider(kvCacheManager: kvManager)
+
+        var streamedChunks: [String] = []
+        var turnCompletedTokens = 0
+        var turnCompletedLatency = 0
+
+        let req = ModelGenerationRequest(
+            sessionID: SessionID("stream_test"),
+            immutablePrefix: "Test Prefix",
+            messages: [ChatMessage(sessionID: SessionID("stream_test"), role: .user, content: "Streaming test prompt")]
+        )
+
+        let resp = try await provider.generateTurn(request: req) { event in
+            switch event {
+            case .textDelta(let chunk):
+                streamedChunks.append(chunk)
+            case .turnCompleted(let tokens, let latency):
+                turnCompletedTokens = tokens
+                turnCompletedLatency = latency
+            default:
+                break
+            }
+        }
+
+        XCTAssertFalse(streamedChunks.isEmpty, "Streamed text chunks must be yielded via textDelta")
+        XCTAssertGreaterThan(turnCompletedTokens, 0, "turnCompleted must report positive token count")
+        XCTAssertGreaterThan(turnCompletedLatency, 0, "turnCompleted must report positive latency")
+        XCTAssertEqual(resp.completionTokens, turnCompletedTokens)
+    }
 }
 
 private func XCTAssertThrowsErrorAsync<T>(

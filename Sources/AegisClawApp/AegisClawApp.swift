@@ -18,6 +18,9 @@ public final class AegisAppViewModel: ObservableObject {
     @Published public var isGenerating: Bool = false
     @Published public var lastPrefixCacheHit: Bool = false
     @Published public var lastPrefixHash: String = "-"
+    @Published public var activeStreamingResponse: String = ""
+    @Published public var liveTokensPerSecond: Double = 0.0
+    @Published public var totalTokensGenerated: Int = 0
 
     // On-Device Gemma 4 E4B Model Download & Readiness State
     @Published public var selectedRuntimeFormat: Gemma4RuntimeFormat = .mlx4BitE4B
@@ -143,6 +146,9 @@ public final class AegisAppViewModel: ObservableObject {
         inputPrompt = ""
         isGenerating = true
         activeThinking = ""
+        activeStreamingResponse = ""
+        liveTokensPerSecond = 0.0
+        totalTokensGenerated = 0
 
         let userMsg = ChatMessage(sessionID: sessionID, role: .user, content: trimmed)
         messages.append(userMsg)
@@ -163,7 +169,14 @@ public final class AegisAppViewModel: ObservableObject {
                             self.lastPrefixHash = String(hash.prefix(10))
                         case .thinkingDelta(let delta):
                             self.activeThinking = delta
-                        case .textDelta, .toolCallRequested, .toolCallCompleted, .turnCompleted:
+                        case .textDelta(let delta):
+                            self.activeStreamingResponse += delta
+                        case .turnCompleted(let totalTokens, let latencyMs):
+                            self.totalTokensGenerated = totalTokens
+                            if latencyMs > 0 {
+                                self.liveTokensPerSecond = (Double(totalTokens) / (Double(latencyMs) / 1000.0))
+                            }
+                        case .toolCallRequested, .toolCallCompleted:
                             break
                         }
                     }
@@ -175,9 +188,11 @@ public final class AegisAppViewModel: ObservableObject {
                     thinking: result.thinkingTrace
                 )
                 self.messages.append(assistantMsg)
+                self.activeStreamingResponse = ""
                 self.isGenerating = false
             } catch {
                 self.activeThinking = "Turn Error: \(error.localizedDescription)"
+                self.activeStreamingResponse = ""
                 self.isGenerating = false
             }
         }
@@ -209,6 +224,15 @@ public struct AegisMainView: View {
                     )
                     .font(.caption.bold())
                     .foregroundStyle(viewModel.lastPrefixCacheHit ? .green : .orange)
+
+                    if viewModel.liveTokensPerSecond > 0 || viewModel.totalTokensGenerated > 0 {
+                        Label(
+                            "\(String(format: "%.1f", viewModel.liveTokensPerSecond)) tok/s",
+                            systemImage: "speedometer"
+                        )
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.purple)
+                    }
 
                     Spacer()
 
@@ -266,6 +290,31 @@ public struct AegisMainView: View {
                                     .clipShape(RoundedRectangle(cornerRadius: 12))
                             }
                             .frame(maxWidth: .infinity, alignment: msg.role == .user ? .trailing : .leading)
+                        }
+
+                        if viewModel.isGenerating {
+                            VStack(alignment: .leading, spacing: 6) {
+                                if !viewModel.activeThinking.isEmpty {
+                                    DisclosureGroup("Reasoning Trace (<think>)") {
+                                        Text(viewModel.activeThinking)
+                                            .font(.caption.monospaced())
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .font(.caption.bold())
+                                    .padding(8)
+                                }
+                                HStack(alignment: .bottom, spacing: 6) {
+                                    Text(viewModel.activeStreamingResponse.isEmpty ? "Generating on Apple Metal..." : viewModel.activeStreamingResponse)
+                                        .padding(12)
+                                        .background(Color.gray.opacity(0.12))
+                                        .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                                    ProgressView()
+                                        .scaleEffect(0.7)
+                                        .padding(.bottom, 6)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                     .padding(14)

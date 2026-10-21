@@ -33,9 +33,7 @@ let package = Package(
         .library(name: "AegisGateway", targets: ["AegisGateway"])
     ],
     dependencies: [
-        // Optional drop-in MLX Swift & WhisperKit packages for physical Apple Silicon builds:
-        // .package(url: "https://github.com/ml-explore/mlx-swift", from: "0.21.0"),
-        // .package(url: "https://github.com/argmaxinc/WhisperKit", from: "0.9.0"),
+        .package(url: "https://github.com/ml-explore/mlx-swift-lm", from: "3.32.3")
     ],
     targets: [
         .target(
@@ -45,8 +43,15 @@ let package = Package(
         ),
         .target(
             name: "AegisEdgeLLM",
-            dependencies: ["AegisCore"],
-            swiftSettings: [.swiftLanguageMode(.v6)]
+            dependencies: [
+                "AegisCore",
+                .product(name: "MLXLMCommon", package: "mlx-swift-lm", condition: .when(platforms: [.iOS, .macOS])),
+                .product(name: "MLXLLM", package: "mlx-swift-lm", condition: .when(platforms: [.iOS, .macOS]))
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .interoperabilityMode(.Cxx)
+            ]
         ),
         .target(
             name: "AegisContextMemory",
@@ -79,7 +84,10 @@ let package = Package(
                 "AegisTools",
                 "AegisGateway"
             ],
-            swiftSettings: [.swiftLanguageMode(.v6)]
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .interoperabilityMode(.Cxx)
+            ]
         ),
         .testTarget(
             name: "AegisClawTests",
@@ -91,7 +99,11 @@ let package = Package(
                 "AegisTools",
                 "AegisGateway"
             ],
-            swiftSettings: [.swiftLanguageMode(.v6)]
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .interoperabilityMode(.Cxx)
+            ]
         )
-    ]
+    ],
+    cxxLanguageStandard: .gnucxx20
 )
