@@ -40,3 +40,4 @@ AegisClawWorkspace/
 tool_outputs/
 models/
 scripts/get_log.ps1
+scripts/check_ci.ps1

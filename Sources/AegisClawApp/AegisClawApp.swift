@@ -200,10 +200,18 @@ public final class AegisAppViewModel: ObservableObject {
                 self.isGenerating = false
                 self.activeRequestStatus = "Ready"
             } catch {
-                self.activeThinking = "Turn Error: \(error.localizedDescription)"
+                let errorContent = "⚠️ Turn Execution Error: \(error.localizedDescription)"
+                let errorMsg = ChatMessage(
+                    sessionID: currentSession,
+                    role: .assistant,
+                    content: errorContent,
+                    thinking: "Error Details: \(String(describing: error))"
+                )
+                self.messages.append(errorMsg)
+                self.activeThinking = errorContent
                 self.activeStreamingResponse = ""
                 self.isGenerating = false
-                self.activeRequestStatus = "Error"
+                self.activeRequestStatus = "Error: \(error.localizedDescription)"
             }
         }
     }
@@ -235,15 +243,19 @@ public struct AegisMainView: View {
                     .font(.caption2.bold())
                     .foregroundStyle(viewModel.lastPrefixCacheHit ? .green : .orange)
 
-                    if viewModel.isGenerating {
-                        HStack(spacing: 4) {
+                    // Always display request progress status
+                    HStack(spacing: 4) {
+                        if viewModel.isGenerating {
                             ProgressView()
                                 .scaleEffect(0.6)
-                            Text(viewModel.activeRequestStatus)
-                                .font(.caption2.monospaced())
-                                .foregroundStyle(.secondary)
                         }
-                    } else if viewModel.totalTokensGenerated > 0 {
+                        Text(viewModel.activeRequestStatus)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(viewModel.activeRequestStatus.contains("Error") ? .red : .secondary)
+                            .lineLimit(1)
+                    }
+
+                    if viewModel.totalTokensGenerated > 0 {
                         Text("\(String(format: "%.1f", viewModel.liveTokensPerSecond)) tok/s (\(viewModel.totalTokensGenerated) tok)")
                             .font(.caption2.monospaced())
                             .foregroundStyle(.purple)

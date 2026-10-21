@@ -849,13 +849,31 @@ public actor MLXEdgeLLMProvider: LanguageModelProvider {
         #endif
 
         let container: ModelContainer
-        if let existing = loadedContainer, loadedDirectory == directory {
-            container = existing
-        } else {
-            let config = ModelConfiguration(directory: directory)
-            container = try await LLMModelFactory.shared.loadContainer(configuration: config)
-            self.loadedContainer = container
-            self.loadedDirectory = directory
+        do {
+            if let existing = loadedContainer, loadedDirectory == directory {
+                container = existing
+            } else {
+                await onEvent(.thinkingDelta("Loading MLX model container from \(directory.lastPathComponent)..."))
+                let config = ModelConfiguration(directory: directory)
+                container = try await LLMModelFactory.shared.loadContainer(configuration: config)
+                self.loadedContainer = container
+                self.loadedDirectory = directory
+            }
+        } catch {
+            let errorText = "MLX Model Load Error: \(error.localizedDescription) (\(directory.lastPathComponent))"
+            await onEvent(.thinkingDelta(errorText))
+            let fallbackText = "⚠️ On-Device Model Loading Error: \(error.localizedDescription)\n\nPlease check that all model shards and tokenizer files exist in \(directory.lastPathComponent)."
+            await onEvent(.textDelta(fallbackText))
+            await onEvent(.turnCompleted(totalTokens: max(1, fallbackText.count / 4), latencyMs: 200))
+            return ModelGenerationResponse(
+                thinking: errorText,
+                content: fallbackText,
+                toolCalls: [],
+                promptTokens: meta.tokenCount + 32,
+                completionTokens: max(1, fallbackText.count / 4),
+                usedPrefixCache: isHit,
+                providerIdentifier: "\(providerID) [load-error]"
+            )
         }
 
         var chatMessages: [Chat.Message] = []
@@ -875,98 +893,115 @@ public actor MLXEdgeLLMProvider: LanguageModelProvider {
             }
         }
 
-        let userInput = UserInput(chat: chatMessages)
-        let lmInput = try await container.prepare(input: userInput)
-        let params = GenerateParameters(
-            maxTokens: request.maxOutputTokens,
-            temperature: Float(request.temperature)
-        )
+        do {
+            let userInput = UserInput(chat: chatMessages)
+            let lmInput = try await container.prepare(input: userInput)
+            let params = GenerateParameters(
+                maxTokens: request.maxOutputTokens,
+                temperature: Float(request.temperature)
+            )
 
-        let startTime = Date()
-        let stream = try await container.generate(input: lmInput, parameters: params)
+            let startTime = Date()
+            let stream = try await container.generate(input: lmInput, parameters: params)
 
-        var streamedContent = ""
-        var streamedThinking = ""
-        var inThinkingBlock = false
-        var generatedTokens = 0
-        var promptTokens = meta.tokenCount
+            var streamedContent = ""
+            var streamedThinking = ""
+            var inThinkingBlock = false
+            var generatedTokens = 0
+            var promptTokens = meta.tokenCount
 
-        for await generation in stream {
-            switch generation {
-            case .chunk(let text):
-                if text.contains("<|think|>") {
-                    inThinkingBlock = true
-                }
-                if inThinkingBlock {
-                    streamedThinking += text
-                    await onEvent(.thinkingDelta(streamedThinking))
-                    if text.contains("<|/think|>") {
-                        inThinkingBlock = false
+            for await generation in stream {
+                switch generation {
+                case .chunk(let text):
+                    if text.contains("<|think|>") {
+                        inThinkingBlock = true
                     }
-                } else {
-                    streamedContent += text
-                    await onEvent(.textDelta(text))
+                    if inThinkingBlock {
+                        streamedThinking += text
+                        await onEvent(.thinkingDelta(streamedThinking))
+                        if text.contains("<|/think|>") {
+                            inThinkingBlock = false
+                        }
+                    } else {
+                        streamedContent += text
+                        await onEvent(.textDelta(text))
+                    }
+                case .toolCall(let call):
+                    let jsonObject = call.function.arguments.mapValues { $0.anyValue }
+                    let argsData = (try? JSONSerialization.data(withJSONObject: jsonObject)) ?? Data("{}".utf8)
+                    let argsString = String(decoding: argsData, as: UTF8.self)
+                    let parsedCall = ToolCallRequest(
+                        toolName: call.function.name,
+                        argumentsJSON: argsString
+                    )
+                    await onEvent(.toolCallRequested(parsedCall))
+                    let latency = Int(Date().timeIntervalSince(startTime) * 1000)
+                    await onEvent(.turnCompleted(totalTokens: generatedTokens, latencyMs: latency))
+                    return ModelGenerationResponse(
+                        thinking: streamedThinking.isEmpty ? nil : streamedThinking,
+                        content: streamedContent,
+                        toolCalls: [parsedCall],
+                        promptTokens: promptTokens,
+                        completionTokens: max(1, generatedTokens),
+                        usedPrefixCache: isHit,
+                        providerIdentifier: providerID
+                    )
+                case .info(let info):
+                    generatedTokens = info.generationTokenCount
+                    promptTokens = info.promptTokenCount
+                    let latency = Int(Date().timeIntervalSince(startTime) * 1000)
+                    await onEvent(.turnCompleted(totalTokens: generatedTokens, latencyMs: latency))
                 }
-            case .toolCall(let call):
-                let jsonObject = call.function.arguments.mapValues { $0.anyValue }
-                let argsData = (try? JSONSerialization.data(withJSONObject: jsonObject)) ?? Data("{}".utf8)
-                let argsString = String(decoding: argsData, as: UTF8.self)
-                let parsedCall = ToolCallRequest(
-                    toolName: call.function.name,
-                    argumentsJSON: argsString
-                )
-                await onEvent(.toolCallRequested(parsedCall))
-                let latency = Int(Date().timeIntervalSince(startTime) * 1000)
-                await onEvent(.turnCompleted(totalTokens: generatedTokens, latencyMs: latency))
-                return ModelGenerationResponse(
-                    thinking: streamedThinking.isEmpty ? nil : streamedThinking,
-                    content: streamedContent,
-                    toolCalls: [parsedCall],
-                    promptTokens: promptTokens,
-                    completionTokens: max(1, generatedTokens),
-                    usedPrefixCache: isHit,
-                    providerIdentifier: providerID
-                )
-            case .info(let info):
-                generatedTokens = info.generationTokenCount
-                promptTokens = info.promptTokenCount
-                let latency = Int(Date().timeIntervalSince(startTime) * 1000)
-                await onEvent(.turnCompleted(totalTokens: generatedTokens, latencyMs: latency))
             }
-        }
 
-        let totalLatency = Int(Date().timeIntervalSince(startTime) * 1000)
-        if generatedTokens == 0 {
-            generatedTokens = max(1, streamedContent.count / 4)
-            await onEvent(.turnCompleted(totalTokens: generatedTokens, latencyMs: totalLatency))
-        }
+            let totalLatency = Int(Date().timeIntervalSince(startTime) * 1000)
+            if generatedTokens == 0 {
+                generatedTokens = max(1, streamedContent.count / 4)
+                await onEvent(.turnCompleted(totalTokens: generatedTokens, latencyMs: totalLatency))
+            }
 
-        var cleanContent = streamedContent
-        if cleanContent.contains("<|think|>") && cleanContent.contains("<|/think|>") {
-            if let start = cleanContent.range(of: "<|think|>"),
-               let end = cleanContent.range(of: "<|/think|>") {
-                let thinkRange = start.lowerBound..<end.upperBound
-                let extractedThinking = String(cleanContent[thinkRange])
-                    .replacingOccurrences(of: "<|think|>", with: "")
-                    .replacingOccurrences(of: "<|/think|>", with: "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if streamedThinking.isEmpty {
-                    streamedThinking = extractedThinking
+            var cleanContent = streamedContent
+            if cleanContent.contains("<|think|>") && cleanContent.contains("<|/think|>") {
+                if let start = cleanContent.range(of: "<|think|>"),
+                   let end = cleanContent.range(of: "<|/think|>") {
+                    let thinkRange = start.lowerBound..<end.upperBound
+                    let extractedThinking = String(cleanContent[thinkRange])
+                        .replacingOccurrences(of: "<|think|>", with: "")
+                        .replacingOccurrences(of: "<|/think|>", with: "")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if streamedThinking.isEmpty {
+                        streamedThinking = extractedThinking
+                    }
+                    cleanContent.removeSubrange(thinkRange)
+                    cleanContent = cleanContent.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
-                cleanContent.removeSubrange(thinkRange)
-                cleanContent = cleanContent.trimmingCharacters(in: .whitespacesAndNewlines)
             }
-        }
 
-        return ModelGenerationResponse(
-            thinking: streamedThinking.isEmpty ? nil : streamedThinking,
-            content: cleanContent,
-            toolCalls: [],
-            promptTokens: promptTokens,
-            completionTokens: generatedTokens,
-            usedPrefixCache: isHit,
-            providerIdentifier: providerID
-        )
+            return ModelGenerationResponse(
+                thinking: streamedThinking.isEmpty ? nil : streamedThinking,
+                content: cleanContent,
+                toolCalls: [],
+                promptTokens: promptTokens,
+                completionTokens: generatedTokens,
+                usedPrefixCache: isHit,
+                providerIdentifier: providerID
+            )
+        } catch {
+            let errorText = "MLX Generation Error: \(error.localizedDescription)"
+            await onEvent(.thinkingDelta(errorText))
+            let fallbackText = "⚠️ MLX Generation Error: \(error.localizedDescription)"
+            await onEvent(.textDelta(fallbackText))
+            await onEvent(.turnCompleted(totalTokens: 12, latencyMs: 200))
+            return ModelGenerationResponse(
+                thinking: errorText,
+                content: fallbackText,
+                toolCalls: [],
+                promptTokens: meta.tokenCount,
+                completionTokens: 12,
+                usedPrefixCache: isHit,
+                providerIdentifier: "\(providerID) [gen-error]"
+            )
+        }
     }
     #endif
 }
