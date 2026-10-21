@@ -58,7 +58,7 @@ jobs:
           set -o pipefail
           xcodebuild build \
             -project AegisClaw.xcodeproj \
-            -scheme AegisClaw \
+            -scheme AegisClawApp \
             -sdk iphoneos \
             -destination "generic/platform=iOS" \
             -configuration Release \

@@ -45,3 +45,11 @@ targets:
     dependencies:
       - package: AegisClawWorkspace
         product: AegisClawKit
+
+schemes:
+  AegisClawApp:
+    build:
+      targets:
+        AegisClaw: all
+    run:
+      config: Release
