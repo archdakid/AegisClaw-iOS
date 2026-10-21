@@ -118,16 +118,18 @@ public enum HermesOpenClawMigrator {
         let extSkillsDir = externalDirectory.appendingPathComponent("skills")
         if fm.fileExists(atPath: extSkillsDir.path),
            let enumerator = fm.enumerator(at: extSkillsDir, includingPropertiesForKeys: nil) {
-            for case let fileURL as URL in enumerator where fileURL.lastPathComponent == "SKILL.md" {
-                if let raw = try? String(contentsOf: fileURL, encoding: .utf8) {
-                    let skillName = fileURL.deletingLastPathComponent().lastPathComponent
-                    if (try? await skillService.manageSkill(
-                        action: "create",
-                        skillName: skillName,
-                        category: "migrated",
-                        content: raw
-                    )) != nil {
-                        skillCount += 1
+            while let fileURL = enumerator.nextObject() as? URL {
+                if fileURL.lastPathComponent == "SKILL.md" {
+                    if let raw = try? String(contentsOf: fileURL, encoding: .utf8) {
+                        let skillName = fileURL.deletingLastPathComponent().lastPathComponent
+                        if (try? await skillService.manageSkill(
+                            action: "create",
+                            skillName: skillName,
+                            category: "migrated",
+                            content: raw
+                        )) != nil {
+                            skillCount += 1
+                        }
                     }
                 }
             }
