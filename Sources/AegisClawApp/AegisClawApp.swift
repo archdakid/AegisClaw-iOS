@@ -21,6 +21,7 @@ public final class AegisAppViewModel: ObservableObject {
     @Published public var activeStreamingResponse: String = ""
     @Published public var liveTokensPerSecond: Double = 0.0
     @Published public var totalTokensGenerated: Int = 0
+    @Published public var activeRequestStatus: String = "Idle"
 
     // On-Device Gemma 4 E4B Model Download & Readiness State
     @Published public var selectedRuntimeFormat: Gemma4RuntimeFormat = .mlx4BitE4B
@@ -149,6 +150,7 @@ public final class AegisAppViewModel: ObservableObject {
         activeStreamingResponse = ""
         liveTokensPerSecond = 0.0
         totalTokensGenerated = 0
+        activeRequestStatus = "Prefilling context..."
 
         let userMsg = ChatMessage(sessionID: sessionID, role: .user, content: trimmed)
         messages.append(userMsg)
@@ -167,17 +169,23 @@ public final class AegisAppViewModel: ObservableObject {
                         case .prefixCacheStatus(let hit, let hash, _):
                             self.lastPrefixCacheHit = hit
                             self.lastPrefixHash = String(hash.prefix(10))
+                            self.activeRequestStatus = hit ? "Prefix Cache HIT (0ms prefill)" : "Cold prefill..."
                         case .thinkingDelta(let delta):
                             self.activeThinking = delta
+                            self.activeRequestStatus = "Reasoning (<think>)..."
                         case .textDelta(let delta):
                             self.activeStreamingResponse += delta
+                            self.activeRequestStatus = "Streaming response..."
                         case .turnCompleted(let totalTokens, let latencyMs):
                             self.totalTokensGenerated = totalTokens
                             if latencyMs > 0 {
                                 self.liveTokensPerSecond = (Double(totalTokens) / (Double(latencyMs) / 1000.0))
                             }
-                        case .toolCallRequested, .toolCallCompleted:
-                            break
+                            self.activeRequestStatus = "Completed (\(totalTokens) tokens)"
+                        case .toolCallRequested(let req):
+                            self.activeRequestStatus = "Invoking \(req.toolName)..."
+                        case .toolCallCompleted:
+                            self.activeRequestStatus = "Tool completed"
                         }
                     }
                 }
@@ -190,10 +198,12 @@ public final class AegisAppViewModel: ObservableObject {
                 self.messages.append(assistantMsg)
                 self.activeStreamingResponse = ""
                 self.isGenerating = false
+                self.activeRequestStatus = "Ready"
             } catch {
                 self.activeThinking = "Turn Error: \(error.localizedDescription)"
                 self.activeStreamingResponse = ""
                 self.isGenerating = false
+                self.activeRequestStatus = "Error"
             }
         }
     }
@@ -217,21 +227,26 @@ public struct AegisMainView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 // Telemetry & On-Device Model Status Bar
-                HStack {
+                HStack(spacing: 8) {
                     Label(
-                        viewModel.lastPrefixCacheHit ? "KV Prefix: HIT" : "KV Prefix: COLD",
+                        viewModel.lastPrefixCacheHit ? "KV: HIT" : "KV: COLD",
                         systemImage: viewModel.lastPrefixCacheHit ? "bolt.fill" : "flame"
                     )
-                    .font(.caption.bold())
+                    .font(.caption2.bold())
                     .foregroundStyle(viewModel.lastPrefixCacheHit ? .green : .orange)
 
-                    if viewModel.liveTokensPerSecond > 0 || viewModel.totalTokensGenerated > 0 {
-                        Label(
-                            "\(String(format: "%.1f", viewModel.liveTokensPerSecond)) tok/s",
-                            systemImage: "speedometer"
-                        )
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.purple)
+                    if viewModel.isGenerating {
+                        HStack(spacing: 4) {
+                            ProgressView()
+                                .scaleEffect(0.6)
+                            Text(viewModel.activeRequestStatus)
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
+                    } else if viewModel.totalTokensGenerated > 0 {
+                        Text("\(String(format: "%.1f", viewModel.liveTokensPerSecond)) tok/s (\(viewModel.totalTokensGenerated) tok)")
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.purple)
                     }
 
                     Spacer()
@@ -240,19 +255,17 @@ public struct AegisMainView: View {
                         viewModel.showModelManagerSheet = true
                     } label: {
                         Label(
-                            viewModel.isModelReadyOnDevice ? "Gemma 4 Ready" : "Download Model",
+                            viewModel.isModelReadyOnDevice ? "Gemma 4" : "Model",
                             systemImage: viewModel.isModelReadyOnDevice ? "checkmark.icloud.fill" : "arrow.down.circle.fill"
                         )
-                        .font(.caption.bold())
+                        .font(.caption2.bold())
                         .foregroundStyle(viewModel.isModelReadyOnDevice ? .blue : .red)
                     }
 
-                    Spacer()
-
-                    Button("Dream Now") {
+                    Button("Dream") {
                         viewModel.triggerDreamingConsolidationNow()
                     }
-                    .font(.caption.bold())
+                    .font(.caption2.bold())
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)

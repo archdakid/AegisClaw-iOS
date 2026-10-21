@@ -1,4 +1,4 @@
-// swift-tools-version: 6.1
+// swift-tools-version: 6.0
 import PackageDescription
 
 let package = Package(
@@ -33,7 +33,7 @@ let package = Package(
         .library(name: "AegisGateway", targets: ["AegisGateway"])
     ],
     dependencies: [
-        .package(url: "https://github.com/ml-explore/mlx-swift-lm", exact: "2.31.3")
+        .package(url: "https://github.com/ml-explore/mlx-swift-lm", exact: "2.30.6")
     ],
     targets: [
         .target(

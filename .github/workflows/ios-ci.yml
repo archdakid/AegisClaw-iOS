@@ -18,7 +18,7 @@ jobs:
       - name: Select Xcode Toolchain & Verify iOS SDK
         run: |
           ls -ld /Applications/Xcode*.app || true
-          sudo xcode-select -s /Applications/Xcode_16.3.app || sudo xcode-select -s /Applications/Xcode_16.2.app || sudo xcode-select -s /Applications/Xcode.app || sudo xcode-select -s /Applications/Xcode_16.1.app
+          sudo xcode-select -s /Applications/Xcode_16.2.app || sudo xcode-select -s /Applications/Xcode_16.1.app || sudo xcode-select -s /Applications/Xcode_16.3.app || sudo xcode-select -s /Applications/Xcode.app
           xcodebuild -version
           swift --version
           xcrun -sdk iphoneos -show-sdk-path

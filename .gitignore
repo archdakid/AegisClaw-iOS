@@ -39,3 +39,4 @@ Package.resolved
 AegisClawWorkspace/
 tool_outputs/
 models/
+scripts/get_log.ps1
