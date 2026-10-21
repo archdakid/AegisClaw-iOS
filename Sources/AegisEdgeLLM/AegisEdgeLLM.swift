@@ -535,7 +535,7 @@ public actor Gemma4ModelDownloader {
         format: Gemma4RuntimeFormat = .mlx4BitE4B,
         hfBearerToken: String? = nil,
         simulateInCI: Bool = false,
-        onProgress: @Sendable (ModelDownloadProgress) async -> Void = { _ in }
+        onProgress: @escaping @Sendable (ModelDownloadProgress) async -> Void = { _ in }
     ) async throws -> OnDeviceModelManifest {
         purgeTemporaryDownloadArtifacts()
 
@@ -932,8 +932,6 @@ public actor MLXEdgeLLMProvider: LanguageModelProvider {
                 promptTokens = info.promptTokenCount
                 let latency = Int(Date().timeIntervalSince(startTime) * 1000)
                 await onEvent(.turnCompleted(totalTokens: generatedTokens, latencyMs: latency))
-            default:
-                break
             }
         }
 
