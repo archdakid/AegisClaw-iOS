@@ -39,7 +39,10 @@ let package = Package(
         .target(
             name: "AegisCore",
             dependencies: [],
-            swiftSettings: [.swiftLanguageMode(.v6)]
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .interoperabilityMode(.Cxx)
+            ]
         ),
         .target(
             name: "AegisEdgeLLM",
@@ -56,23 +59,35 @@ let package = Package(
         .target(
             name: "AegisContextMemory",
             dependencies: ["AegisCore", "AegisEdgeLLM"],
-            swiftSettings: [.swiftLanguageMode(.v6)],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .interoperabilityMode(.Cxx)
+            ],
             linkerSettings: [.linkedLibrary("sqlite3")]
         ),
         .target(
             name: "AegisTools",
             dependencies: ["AegisCore", "AegisContextMemory"],
-            swiftSettings: [.swiftLanguageMode(.v6)]
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .interoperabilityMode(.Cxx)
+            ]
         ),
         .target(
             name: "AegisHarness",
             dependencies: ["AegisCore", "AegisEdgeLLM", "AegisContextMemory", "AegisTools"],
-            swiftSettings: [.swiftLanguageMode(.v6)]
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .interoperabilityMode(.Cxx)
+            ]
         ),
         .target(
             name: "AegisGateway",
             dependencies: ["AegisCore", "AegisEdgeLLM", "AegisContextMemory", "AegisHarness", "AegisTools"],
-            swiftSettings: [.swiftLanguageMode(.v6)]
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .interoperabilityMode(.Cxx)
+            ]
         ),
         .target(
             name: "AegisClawApp",
