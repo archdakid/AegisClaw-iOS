@@ -274,16 +274,28 @@ final class AegisClawTests: XCTestCase {
 
     // 9. Verify GGUF Single-Quant Filter & Real-Time Streaming Generation Events
     func testGGUFSingleQuantFilterAndStreamingGenerationEvents() async throws {
-        let downloader = Gemma4ModelDownloader(modelsRootDirectory: paths.modelsDir)
         let defaultFiles = Gemma4RuntimeFormat.ggufE4B.defaultRequiredFiles
         XCTAssertEqual(defaultFiles, ["config.json", "gemma-4-E4B-it-Q4_K_M.gguf"])
 
         let kvManager = PrefixKVCacheManager(cacheDirectory: paths.kvPrefixCacheDir)
         let provider = MLXEdgeLLMProvider(kvCacheManager: kvManager)
 
-        var streamedChunks: [String] = []
-        var turnCompletedTokens = 0
-        var turnCompletedLatency = 0
+        actor StreamCollector {
+            var chunks: [String] = []
+            var totalTokens: Int = 0
+            var latencyMs: Int = 0
+
+            func appendChunk(_ chunk: String) {
+                chunks.append(chunk)
+            }
+
+            func recordCompletion(tokens: Int, latency: Int) {
+                self.totalTokens = tokens
+                self.latencyMs = latency
+            }
+        }
+
+        let collector = StreamCollector()
 
         let req = ModelGenerationRequest(
             sessionID: SessionID("stream_test"),
@@ -294,19 +306,22 @@ final class AegisClawTests: XCTestCase {
         let resp = try await provider.generateTurn(request: req) { event in
             switch event {
             case .textDelta(let chunk):
-                streamedChunks.append(chunk)
+                await collector.appendChunk(chunk)
             case .turnCompleted(let tokens, let latency):
-                turnCompletedTokens = tokens
-                turnCompletedLatency = latency
+                await collector.recordCompletion(tokens: tokens, latency: latency)
             default:
                 break
             }
         }
 
-        XCTAssertFalse(streamedChunks.isEmpty, "Streamed text chunks must be yielded via textDelta")
-        XCTAssertGreaterThan(turnCompletedTokens, 0, "turnCompleted must report positive token count")
-        XCTAssertGreaterThan(turnCompletedLatency, 0, "turnCompleted must report positive latency")
-        XCTAssertEqual(resp.completionTokens, turnCompletedTokens)
+        let recordedChunks = await collector.chunks
+        let recordedTokens = await collector.totalTokens
+        let recordedLatency = await collector.latencyMs
+
+        XCTAssertFalse(recordedChunks.isEmpty, "Streamed text chunks must be yielded via textDelta")
+        XCTAssertGreaterThan(recordedTokens, 0, "turnCompleted must report positive token count")
+        XCTAssertGreaterThan(recordedLatency, 0, "turnCompleted must report positive latency")
+        XCTAssertEqual(resp.completionTokens, recordedTokens)
     }
 }
 
