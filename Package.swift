@@ -33,7 +33,7 @@ let package = Package(
         .library(name: "AegisGateway", targets: ["AegisGateway"])
     ],
     dependencies: [
-        .package(url: "https://github.com/ml-explore/mlx-swift-lm", branch: "main")
+        .package(url: "https://github.com/ml-explore/mlx-swift-lm", exact: "3.32.3")
     ],
     targets: [
         .target(
