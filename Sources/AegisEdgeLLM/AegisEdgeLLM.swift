@@ -6,6 +6,9 @@ import FoundationNetworking
 import MLX
 import MLXLMCommon
 import MLXLLM
+#if canImport(MLXHuggingFace)
+import MLXHuggingFace
+#endif
 #endif
 import AegisCore
 
@@ -854,8 +857,15 @@ public actor MLXEdgeLLMProvider: LanguageModelProvider {
                 container = existing
             } else {
                 await onEvent(.thinkingDelta("Loading MLX model container from \(directory.lastPathComponent)..."))
+                #if canImport(MLXHuggingFace)
+                container = try await LLMModelFactory.shared.loadContainer(
+                    from: directory,
+                    using: #huggingFaceTokenizerLoader()
+                )
+                #else
                 let config = ModelConfiguration(directory: directory)
                 container = try await LLMModelFactory.shared.loadContainer(configuration: config)
+                #endif
                 self.loadedContainer = container
                 self.loadedDirectory = directory
             }

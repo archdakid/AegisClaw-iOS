@@ -33,7 +33,7 @@ let package = Package(
         .library(name: "AegisGateway", targets: ["AegisGateway"])
     ],
     dependencies: [
-        .package(url: "https://github.com/ml-explore/mlx-swift-lm", exact: "2.30.6")
+        .package(url: "https://github.com/ml-explore/mlx-swift-lm", branch: "main")
     ],
     targets: [
         .target(
@@ -49,7 +49,8 @@ let package = Package(
             dependencies: [
                 "AegisCore",
                 .product(name: "MLXLMCommon", package: "mlx-swift-lm", condition: .when(platforms: [.iOS, .macOS])),
-                .product(name: "MLXLLM", package: "mlx-swift-lm", condition: .when(platforms: [.iOS, .macOS]))
+                .product(name: "MLXLLM", package: "mlx-swift-lm", condition: .when(platforms: [.iOS, .macOS])),
+                .product(name: "MLXHuggingFace", package: "mlx-swift-lm", condition: .when(platforms: [.iOS, .macOS]))
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
