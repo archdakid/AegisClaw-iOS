@@ -593,13 +593,14 @@ public actor Gemma4ModelDownloader {
                 let attrs = try? FileManager.default.attributesOfItem(atPath: destinationURL.path)
                 fileSize = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
             } else {
+                let baseBytes = cumulativeBytes
                 fileSize = try await downloadSingleFileWithProgress(
                     repoID: repoID,
                     fileName: fileName,
                     destinationURL: destinationURL,
                     hfBearerToken: hfBearerToken
                 ) { fileBytesWritten, _ in
-                    let currentTotal = cumulativeBytes + fileBytesWritten
+                    let currentTotal = baseBytes + fileBytesWritten
                     await onProgress(ModelDownloadProgress(
                         repoID: repoID,
                         currentFile: fileName,
@@ -907,9 +908,12 @@ public actor MLXEdgeLLMProvider: LanguageModelProvider {
                     await onEvent(.textDelta(text))
                 }
             case .toolCall(let call):
+                let jsonObject = call.function.arguments.mapValues { $0.anyValue }
+                let argsData = (try? JSONSerialization.data(withJSONObject: jsonObject)) ?? Data("{}".utf8)
+                let argsString = String(decoding: argsData, as: UTF8.self)
                 let parsedCall = ToolCallRequest(
                     toolName: call.function.name,
-                    argumentsJSON: call.function.arguments
+                    argumentsJSON: argsString
                 )
                 await onEvent(.toolCallRequested(parsedCall))
                 let latency = Int(Date().timeIntervalSince(startTime) * 1000)
