@@ -845,8 +845,16 @@ public actor MLXEdgeLLMProvider: LanguageModelProvider {
         onEvent: @Sendable (AgentStreamEvent) async -> Void
     ) async throws -> ModelGenerationResponse {
         #if os(iOS)
-        MLX.GPU.set(cacheLimit: 512 * 1024 * 1024)
+        MLX.Memory.cacheLimit = 20 * 1024 * 1024
+        MLX.Memory.memoryLimit = 2400 * 1024 * 1024
+        MLX.Memory.clearCache()
         #endif
+
+        defer {
+            #if os(iOS)
+            MLX.Memory.clearCache()
+            #endif
+        }
 
         let container: ModelContainer
         do {
@@ -868,6 +876,9 @@ public actor MLXEdgeLLMProvider: LanguageModelProvider {
                 container = try await LLMModelFactory.shared.loadContainer(configuration: config)
                 self.loadedContainer = container
                 self.loadedDirectory = directory
+                #if os(iOS)
+                MLX.Memory.clearCache()
+                #endif
             }
         } catch {
             let errorText = "MLX Model Load Error: \(error.localizedDescription) (\(directory.lastPathComponent))"
@@ -907,8 +918,10 @@ public actor MLXEdgeLLMProvider: LanguageModelProvider {
             let userInput = UserInput(chat: chatMessages)
             let lmInput = try await container.prepare(input: userInput)
             let params = GenerateParameters(
-                maxTokens: request.maxOutputTokens,
-                temperature: Float(request.temperature)
+                maxTokens: min(request.maxOutputTokens, 1024),
+                maxKVSize: 1024,
+                temperature: Float(request.temperature),
+                prefillStepSize: 256
             )
 
             let startTime = Date()

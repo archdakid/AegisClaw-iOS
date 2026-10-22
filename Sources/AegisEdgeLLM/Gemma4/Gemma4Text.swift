@@ -1001,8 +1001,15 @@ public class Gemma4TextModel: Module, LLMModel, KVCacheDimensionProvider {
     public func newCache(parameters: GenerateParameters?) throws -> [any KVCache] {
         let firstKvShared = config.numHiddenLayers - config.numKvSharedLayers
 
-        return (0 ..< firstKvShared).map { _ in
-            KVCacheSimple()
+        return (0 ..< firstKvShared).map { i in
+            let lt = (i < config.layerTypes.count) ? config.layerTypes[i] : "sliding_attention"
+            if lt == "sliding_attention" {
+                return RotatingKVCache(maxSize: config.slidingWindow, keep: 0)
+            } else if let maxKV = parameters?.maxKVSize {
+                return RotatingKVCache(maxSize: maxKV, keep: 4)
+            } else {
+                return RotatingKVCache(maxSize: 1024, keep: 4)
+            }
         }
     }
 }
