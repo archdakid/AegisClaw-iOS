@@ -11,15 +11,10 @@ import MLXLMCommon
 import MLXLLM
 import MLXNN
 
-public typealias LLMModel = LanguageModel
 typealias RoPEOffset = Int
 
-private func applyRotaryPosition(_ rope: RoPELayer, to x: MLXArray, offset: Int?) -> MLXArray {
-    if let offset {
-        return rope(x, offset: offset)
-    } else {
-        return rope(x)
-    }
+private func applyRotaryPosition(_ rope: OffsetLayer, to x: MLXArray, offset: Int?) -> MLXArray {
+    rope(x, offset: offset ?? 0)
 }
 
 private let kRMSEps: Float = 1e-6
@@ -283,7 +278,7 @@ private class Gemma4Attention: Module {
     @ModuleInfo(key: "k_norm") var kNorm: RMSNorm?
     @ModuleInfo(key: "v_norm") var vNorm: RMSNormNoScale
 
-    @ModuleInfo var rope: RoPELayer
+    @ModuleInfo var rope: OffsetLayer
 
     init(_ config: Gemma4TextConfiguration, layerIdx: Int) {
         self.config = config

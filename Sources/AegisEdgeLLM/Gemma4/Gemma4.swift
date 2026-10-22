@@ -11,8 +11,6 @@ import MLXLMCommon
 import MLXLLM
 import MLXNN
 
-public typealias LLMModel = LanguageModel
-
 // MARK: - Configuration
 
 /// Configuration for the `"gemma4"` model_type.
