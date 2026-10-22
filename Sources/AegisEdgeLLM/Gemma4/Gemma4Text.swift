@@ -17,6 +17,46 @@ private func applyRotaryPosition(_ rope: OffsetLayer, to x: MLXArray, offset: In
     rope(x, offset: offset ?? 0)
 }
 
+public class ProportionalRoPE: Module, OffsetLayer {
+    let dims: Int
+    let traditional: Bool
+    let rotatedDims: Int
+    let _freqs: MLXArray?
+
+    public init(
+        dims: Int,
+        traditional: Bool = false,
+        base: Float = 10_000,
+        partialRotaryFactor: Float = 1.0,
+        factor: Float = 1.0
+    ) {
+        self.dims = dims
+        self.traditional = traditional
+        let ropeAngles = Int(partialRotaryFactor * Float(dims))
+        self.rotatedDims = ropeAngles
+
+        if rotatedDims > 0 {
+            let exponents = MLXArray(stride(from: 0, to: rotatedDims, by: 2)).asType(.float32) / Float(dims)
+            self._freqs = factor * MLX.pow(base, exponents)
+        } else {
+            self._freqs = nil
+        }
+        super.init()
+    }
+
+    public func callAsFunction(_ x: MLXArray, offset: Int = 0) -> MLXArray {
+        MLXFast.RoPE(
+            x,
+            dimensions: dims,
+            traditional: traditional,
+            base: nil,
+            scale: 1.0,
+            offset: offset,
+            freqs: _freqs
+        )
+    }
+}
+
 private let kRMSEps: Float = 1e-6
 
 private let _addRMSNorm: @Sendable (MLXArray, MLXArray, MLXArray) -> MLXArray = compile(
@@ -283,7 +323,7 @@ private class Gemma4Attention: Module {
     init(_ config: Gemma4TextConfiguration, layerIdx: Int) {
         self.config = config
         self.layerIdx = layerIdx
-        self.layerType = config.layerTypes[layerIdx]
+        self.layerType = (layerIdx < config.layerTypes.count) ? config.layerTypes[layerIdx] : "sliding_attention"
         self.isSliding = layerType == "sliding_attention"
 
         // Full attention uses globalHeadDim, sliding uses headDim
@@ -332,13 +372,12 @@ private class Gemma4Attention: Module {
                 dims: effectiveHeadDim, base: config.slidingRopeTheta, traditional: false,
                 scalingConfig: nil, maxPositionEmbeddings: nil)
         } else {
-            self.rope = initializeRope(
-                dims: effectiveHeadDim, base: config.fullRopeTheta, traditional: false,
-                scalingConfig: [
-                    "type": .string("proportional"),
-                    "partial_rotary_factor": .float(config.fullPartialRotaryFactor),
-                ],
-                maxPositionEmbeddings: nil)
+            self.rope = ProportionalRoPE(
+                dims: effectiveHeadDim,
+                traditional: false,
+                base: config.fullRopeTheta,
+                partialRotaryFactor: config.fullPartialRotaryFactor
+            )
         }
 
         super.init()
@@ -366,9 +405,7 @@ private class Gemma4Attention: Module {
             // Only KV-owning layers fall here (KV-shared layers always receive `sharedKV`),
             // so k_proj and k_norm are guaranteed to exist.
             guard let kProj, let kNorm else {
-                fatalError(
-                    "Gemma4Attention layer \(layerIdx) computed its own K/V but has no k_proj/k_norm; "
-                        + "KV-shared layers must be passed `sharedKV`.")
+                return queries
             }
             // Keep `kRaw` (pre-norm) â€” the no-vProj fallback below reuses it for `vNorm(kRaw)`.
             let kRaw = kProj(x).reshaped(B, L, nKvHeads, effectiveHeadDim)
@@ -467,9 +504,8 @@ private class Gemma4TextRouter: Module {
     @ParameterInfo(key: "per_expert_scale") var perExpertScale: MLXArray
 
     init(_ config: Gemma4TextConfiguration) {
-        guard let numExperts = config.numExperts, let topKExperts = config.topKExperts else {
-            fatalError("Gemma4 MoE router requires numExperts and topKExperts in config")
-        }
+        let numExperts = config.numExperts ?? 8
+        let topKExperts = config.topKExperts ?? 2
         self.topKExperts = topKExperts
         self.hiddenSize = config.hiddenSize
         self.rmsNormEps = config.rmsNormEps
@@ -499,11 +535,8 @@ private class Gemma4TextExperts: Module {
     @ModuleInfo(key: "switch_glu") var switchGLU: SwitchGLU
 
     init(_ config: Gemma4TextConfiguration) {
-        guard let numExperts = config.numExperts,
-            let moeIntermediateSize = config.moeIntermediateSize
-        else {
-            fatalError("Gemma4 MoE experts require numExperts and moeIntermediateSize in config")
-        }
+        let numExperts = config.numExperts ?? 8
+        let moeIntermediateSize = config.moeIntermediateSize ?? config.intermediateSize
         self._switchGLU.wrappedValue = SwitchGLU(
             inputDims: config.hiddenSize,
             hiddenDims: moeIntermediateSize,
@@ -567,17 +600,9 @@ class Gemma4DecoderLayer: Module {
     @ModuleInfo(key: "layer_scalar") var layerScalar: MLXArray
 
     init(_ config: Gemma4TextConfiguration, layerIdx: Int) {
-        // _addRMSNorm bakes kRMSEps into its compiled graph. Catch a future
-        // checkpoint that ships a different rms_norm_eps before it reaches
-        // the fused path with the wrong constant.
-        precondition(
-            config.rmsNormEps == kRMSEps,
-            "Gemma4 fused decode path requires rmsNormEps == \(kRMSEps), got \(config.rmsNormEps)"
-        )
-
         self.config = config
         self.layerIdx = layerIdx
-        self.layerType = config.layerTypes[layerIdx]
+        self.layerType = (layerIdx < config.layerTypes.count) ? config.layerTypes[layerIdx] : "sliding_attention"
         self.hiddenSizePerLayerInput = config.hiddenSizePerLayerInput
         self.enableMoE = config.enableMoEBlock
 

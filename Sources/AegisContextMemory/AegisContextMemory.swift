@@ -78,6 +78,15 @@ public actor SQLiteWALDatabase {
         }
     }
 
+    private static func columnText(_ stmt: OpaquePointer?, _ index: Int32) -> String {
+        guard let cStr = sqlite3_column_text(stmt, index) else { return "" }
+        return String(cString: cStr)
+    }
+
+    private func columnText(_ stmt: OpaquePointer?, _ index: Int32) -> String {
+        Self.columnText(stmt, index)
+    }
+
     private static func configureWALAndMigrate(db: OpaquePointer) throws {
         let setupSQL = """
         PRAGMA journal_mode = WAL;
@@ -257,8 +266,8 @@ public actor SQLiteWALDatabase {
         var results: [(String, String, Int)] = []
         var rankIndex = 1
         while sqlite3_step(stmt) == SQLITE_ROW {
-            let id = String(cString: sqlite3_column_text(stmt, 0))
-            let text = String(cString: sqlite3_column_text(stmt, 1))
+            let id = columnText(stmt, 0)
+            let text = columnText(stmt, 1)
             results.append((id, text, rankIndex))
             rankIndex += 1
         }
@@ -304,10 +313,10 @@ public actor SQLiteWALDatabase {
         }
         var chunks: [MemoryChunkRecord] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
-            let id = String(cString: sqlite3_column_text(stmt, 0))
-            let tier = String(cString: sqlite3_column_text(stmt, 1))
-            let textBody = String(cString: sqlite3_column_text(stmt, 2))
-            let embStr = String(cString: sqlite3_column_text(stmt, 3))
+            let id = columnText(stmt, 0)
+            let tier = columnText(stmt, 1)
+            let textBody = columnText(stmt, 2)
+            let embStr = columnText(stmt, 3)
             let salience = sqlite3_column_double(stmt, 4)
             let refCount = Int(sqlite3_column_int(stmt, 5))
             let consolidated = sqlite3_column_int(stmt, 6) != 0
@@ -360,9 +369,9 @@ public actor SQLiteWALDatabase {
         sqlite3_bind_text(stmt, 1, sessionID.rawValue, -1, SQLITE_TRANSIENT)
 
         if sqlite3_step(stmt) == SQLITE_ROW {
-            let currentHolder = String(cString: sqlite3_column_text(stmt, 0))
+            let currentHolder = columnText(stmt, 0)
             let expiresAt = sqlite3_column_int64(stmt, 1)
-            let coalescedStr = String(cString: sqlite3_column_text(stmt, 2))
+            let coalescedStr = columnText(stmt, 2)
             var queue = (try? JSONDecoder().decode([String].self, from: Data(coalescedStr.utf8))) ?? []
 
             if expiresAt > now && currentHolder != holderPID {
@@ -488,12 +497,12 @@ public actor SQLiteWALDatabase {
 
         var orphaned: [ToolJournalEntry] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
-            let callID = String(cString: sqlite3_column_text(stmt, 0))
-            let turnID = String(cString: sqlite3_column_text(stmt, 1))
-            let sessID = String(cString: sqlite3_column_text(stmt, 2))
-            let toolName = String(cString: sqlite3_column_text(stmt, 3))
-            let argsJSON = String(cString: sqlite3_column_text(stmt, 4))
-            let status = String(cString: sqlite3_column_text(stmt, 5))
+            let callID = columnText(stmt, 0)
+            let turnID = columnText(stmt, 1)
+            let sessID = columnText(stmt, 2)
+            let toolName = columnText(stmt, 3)
+            let argsJSON = columnText(stmt, 4)
+            let status = columnText(stmt, 5)
             let outPath = sqlite3_column_text(stmt, 6).map { String(cString: $0) }
             orphaned.append(ToolJournalEntry(
                 callID: callID,
@@ -539,10 +548,10 @@ public actor SQLiteWALDatabase {
         var intents: [StandingIntentRecord] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
             intents.append(StandingIntentRecord(
-                id: String(cString: sqlite3_column_text(stmt, 0)),
-                goalExpression: String(cString: sqlite3_column_text(stmt, 1)),
-                triggerCron: String(cString: sqlite3_column_text(stmt, 2)),
-                status: String(cString: sqlite3_column_text(stmt, 3)),
+                id: columnText(stmt, 0),
+                goalExpression: columnText(stmt, 1),
+                triggerCron: columnText(stmt, 2),
+                status: columnText(stmt, 3),
                 lastEvaluatedAt: nil
             ))
         }
