@@ -8,7 +8,10 @@
 import Foundation
 import MLX
 import MLXLMCommon
+import MLXLLM
 import MLXNN
+
+public typealias LLMModel = LanguageModel
 
 // MARK: - Configuration
 

@@ -8,25 +8,19 @@
 import Foundation
 import MLX
 import MLXLMCommon
+import MLXLLM
 import MLXNN
 
-// MARK: - Compiled fusion fragments
-//
-// Gemma 4 ships with a single rms_norm_eps (1e-6) on every RMSNorm in the
-// model (see Gemma4TextConfiguration.rmsNormEps default â€” all upstream
-// Gemma 4 weights use this value). Hardcoding the constant lets one compiled
-// graph serve every layer without per-layer specialization. `Gemma4DecoderLayer.init`
-// asserts the config matches so a future checkpoint with a different eps fails
-// loudly instead of silently using the wrong value.
-//
-// Mirrors the upstream mlx-lm Python optimization
-// (https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/models/gemma4_text.py)
-// which fuses (residual + RMSNorm(x) * weight) and gelu(g) * other into a
-// single compiled graph. The Python equivalent measured ~+2.4% decode tps on
-// M4 Max for gemma-4-e2b-it-4bit at batch=1; the Swift gain is larger
-// (~+23.8% on the same model and hardware) because Swift's per-op MLX
-// dispatch has more overhead, so consolidating ops via compile() recovers
-// more of that overhead. See PR description for the per-trial numbers.
+public typealias LLMModel = LanguageModel
+typealias RoPEOffset = Int
+
+private func applyRotaryPosition(_ rope: RoPELayer, to x: MLXArray, offset: Int?) -> MLXArray {
+    if let offset {
+        return rope(x, offset: offset)
+    } else {
+        return rope(x)
+    }
+}
 
 private let kRMSEps: Float = 1e-6
 
@@ -41,8 +35,6 @@ private let _geluMul: @Sendable (MLXArray, MLXArray) -> MLXArray = compile(
 ) { gate, other in
     geluApproximate(gate) * other
 }
-
-typealias RoPEOffset = Int
 
 private func filterLMHeadWeights(
     from weights: [String: MLXArray],
@@ -369,7 +361,7 @@ private class Gemma4Attention: Module {
         var queries = qProj(x).reshaped(B, L, nHeads, effectiveHeadDim)
         queries = qNorm(queries)
 
-        let activePositionOffset = positionOffset ?? cache?.ropeOffset
+        let activePositionOffset = positionOffset ?? cache?.offset
         let kvState: Gemma4SharedKVState
 
         if let sharedKV {
@@ -550,7 +542,7 @@ private class Gemma4TextExperts: Module {
 /// Exposed at `@_spi(GemmaEncoder)` scope so opted-in client code can drive the layer
 /// stack directly â€” e.g. an encoder-style tap that collects every hidden state rather
 /// than only the final one. Mirrors the Gemma 3 exposure added in #387.
-public class Gemma4DecoderLayer: Module {
+class Gemma4DecoderLayer: Module {
     let config: Gemma4TextConfiguration
     let layerIdx: Int
     let layerType: String
@@ -637,7 +629,7 @@ public class Gemma4DecoderLayer: Module {
     /// KV sharing, or a position offset pass `nil` for those and ignore the corresponding
     /// returned values; the sliding-vs-global attention split is resolved internally from
     /// the layer index, so a client tap does not need to know about it.
-    public func callAsFunction(
+    func callAsFunction(
         _ x: MLXArray,
         mask: MLXFast.ScaledDotProductAttentionMaskMode? = nil,
         cache: KVCache? = nil,
@@ -708,7 +700,7 @@ public class Gemma4DecoderLayer: Module {
 /// The Gemma 4 text backbone: embeddings, the decoder stack, and the final norm.
 ///
 /// Exposed at `@_spi(GemmaEncoder)` scope for encoder-style client taps.
-public class Gemma4TextModelInner: Module {
+class Gemma4TextModelInner: Module {
     public let config: Gemma4TextConfiguration
     /// Multiplier applied to the token embeddings.
     ///
@@ -883,7 +875,7 @@ public class Gemma4TextModel: Module, LLMModel, KVCacheDimensionProvider {
 
     fileprivate let config: Gemma4TextConfiguration
     /// The text backbone, exposed at `@_spi(GemmaEncoder)` scope for client taps.
-    public let model: Gemma4TextModelInner
+    let model: Gemma4TextModelInner
 
     @ModuleInfo(key: "lm_head") var lmHead: Linear?
 
