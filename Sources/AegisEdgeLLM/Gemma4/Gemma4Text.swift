@@ -42,6 +42,22 @@ private let _geluMul: @Sendable (MLXArray, MLXArray) -> MLXArray = compile(
     geluApproximate(gate) * other
 }
 
+typealias RoPEOffset = Int
+
+private func filterLMHeadWeights(
+    from weights: [String: MLXArray],
+    tiedWordEmbeddings: Bool
+) -> [String: MLXArray] {
+    if tiedWordEmbeddings {
+        var result = weights
+        result.removeValue(forKey: "lm_head.weight")
+        result.removeValue(forKey: "lm_head.scales")
+        result.removeValue(forKey: "lm_head.biases")
+        return result
+    }
+    return weights
+}
+
 enum Gemma4SharedKVState {
     case regular(keys: MLXArray, values: MLXArray)
 
