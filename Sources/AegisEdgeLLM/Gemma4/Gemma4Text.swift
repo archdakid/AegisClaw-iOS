@@ -405,7 +405,9 @@ private class Gemma4Attention: Module {
             // Only KV-owning layers fall here (KV-shared layers always receive `sharedKV`),
             // so k_proj and k_norm are guaranteed to exist.
             guard let kProj, let kNorm else {
-                return queries
+                fatalError(
+                    "Gemma4Attention layer \(layerIdx) computed its own K/V but has no k_proj/k_norm; "
+                        + "KV-shared layers must be passed `sharedKV`.")
             }
             // Keep `kRaw` (pre-norm) â€” the no-vProj fallback below reuses it for `vNorm(kRaw)`.
             let kRaw = kProj(x).reshaped(B, L, nKvHeads, effectiveHeadDim)
