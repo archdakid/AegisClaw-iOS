@@ -19,8 +19,35 @@ jobs:
         run: |
           ls -ld /Applications/Xcode*.app || true
           sudo xcode-select -s /Applications/Xcode_16.2.app || sudo xcode-select -s /Applications/Xcode_16.1.app || sudo xcode-select -s /Applications/Xcode.app
+          sudo xcodebuild -license accept || true
           sudo xcodebuild -runFirstLaunch || true
-          sudo xcodebuild -downloadPlatform iOS || true
+
+          echo "=== Initializing CoreSimulator Service ==="
+          sudo launchctl kickstart -k system/com.apple.CoreSimulator.CoreSimulatorService || true
+          xcrun simctl list devices > /dev/null 2>&1 || true
+
+          echo "=== Downloading and Registering iOS Platform ==="
+          PLATFORM_OK=0
+          for attempt in 1 2 3 4; do
+            echo "Attempt $attempt to install iOS platform..."
+            if sudo xcodebuild -downloadPlatform iOS; then
+              echo "iOS platform installed and registered successfully."
+              PLATFORM_OK=1
+              break
+            fi
+            echo "Attempt $attempt failed. Resetting CoreSimulator daemon and retrying in 10s..."
+            sudo killall -9 com.apple.CoreSimulator.CoreSimulatorService 2>/dev/null || true
+            sleep 10
+            sudo launchctl kickstart -k system/com.apple.CoreSimulator.CoreSimulatorService || true
+            xcrun simctl list devices > /dev/null 2>&1 || true
+            sleep 5
+          done
+
+          if [ $PLATFORM_OK -ne 1 ]; then
+            echo "::error title=PlatformInstallFailed::Failed to download and register iOS platform via xcodebuild -downloadPlatform iOS."
+            exit 1
+          fi
+
           xcodebuild -version
           swift --version
           xcrun -sdk iphoneos -show-sdk-path
