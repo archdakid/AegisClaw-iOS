@@ -6,9 +6,6 @@ import FoundationNetworking
 import MLX
 import MLXLMCommon
 import MLXLLM
-#if canImport(MLXHuggingFace)
-import MLXHuggingFace
-#endif
 #endif
 import AegisCore
 
@@ -857,15 +854,18 @@ public actor MLXEdgeLLMProvider: LanguageModelProvider {
                 container = existing
             } else {
                 await onEvent(.thinkingDelta("Loading MLX model container from \(directory.lastPathComponent)..."))
-                #if canImport(MLXHuggingFace)
-                container = try await LLMModelFactory.shared.loadContainer(
-                    from: directory,
-                    using: #huggingFaceTokenizerLoader()
-                )
-                #else
+                // Register native Gemma 4 architecture handlers into MLX's LLMTypeRegistry
+                await LLMTypeRegistry.shared.registerModelType("gemma4") { data in
+                    let config = try JSONDecoder().decode(Gemma4Configuration.self, from: data)
+                    return Gemma4Model(config)
+                }
+                await LLMTypeRegistry.shared.registerModelType("gemma4_text") { data in
+                    let config = try JSONDecoder().decode(Gemma4Configuration.self, from: data)
+                    return Gemma4Model(config)
+                }
+
                 let config = ModelConfiguration(directory: directory)
                 container = try await LLMModelFactory.shared.loadContainer(configuration: config)
-                #endif
                 self.loadedContainer = container
                 self.loadedDirectory = directory
             }
