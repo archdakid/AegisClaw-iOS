@@ -106,6 +106,24 @@ public class Gemma4Model: Module, LLMModel, KVCacheDimensionProvider {
     public func newCache(parameters: GenerateParameters?) throws -> [any KVCache] {
         try languageModel.newCache(parameters: parameters)
     }
+
+    public func prepare(_ input: LMInput, cache: [KVCache], windowSize: Int?) throws -> PrepareResult {
+        let prefillStepSize = windowSize ?? 256
+        var y = input.text
+
+        // Chunked prefill through transformer backbone to populate KV cache without materializing massive logits
+        while y.tokens.size > prefillStepSize {
+            let chunk = y[.newAxis, ..<prefillStepSize]
+            _ = languageModel.model(chunk, cache: cache.isEmpty ? nil : cache)
+            eval(cache)
+            #if os(iOS)
+            MLX.Memory.clearCache()
+            #endif
+            y = y[prefillStepSize...]
+        }
+
+        return .tokens(y)
+    }
 }
 
 // MARK: - LoRA

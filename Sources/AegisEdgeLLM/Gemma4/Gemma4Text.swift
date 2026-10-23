@@ -17,46 +17,6 @@ private func applyRotaryPosition(_ rope: OffsetLayer, to x: MLXArray, offset: In
     rope(x, offset: offset ?? 0)
 }
 
-public class ProportionalRoPE: Module, OffsetLayer {
-    let dims: Int
-    let traditional: Bool
-    let rotatedDims: Int
-    let _freqs: MLXArray?
-
-    public init(
-        dims: Int,
-        traditional: Bool = false,
-        base: Float = 10_000,
-        partialRotaryFactor: Float = 1.0,
-        factor: Float = 1.0
-    ) {
-        self.dims = dims
-        self.traditional = traditional
-        let ropeAngles = Int(partialRotaryFactor * Float(dims))
-        self.rotatedDims = ropeAngles
-
-        if rotatedDims > 0 {
-            let exponents = MLXArray(stride(from: 0, to: rotatedDims, by: 2)).asType(.float32) / Float(dims)
-            self._freqs = factor * MLX.pow(base, exponents)
-        } else {
-            self._freqs = nil
-        }
-        super.init()
-    }
-
-    public func callAsFunction(_ x: MLXArray, offset: Int = 0) -> MLXArray {
-        MLXFast.RoPE(
-            x,
-            dimensions: dims,
-            traditional: traditional,
-            base: nil,
-            scale: 1.0,
-            offset: offset,
-            freqs: _freqs
-        )
-    }
-}
-
 private let kRMSEps: Float = 1e-6
 
 private let _addRMSNorm: @Sendable (MLXArray, MLXArray, MLXArray) -> MLXArray = compile(
@@ -368,15 +328,19 @@ private class Gemma4Attention: Module {
 
         // RoPE: sliding uses default, full uses proportional with partial rotation
         if isSliding {
-            self.rope = initializeRope(
-                dims: effectiveHeadDim, base: config.slidingRopeTheta, traditional: false,
-                scalingConfig: nil, maxPositionEmbeddings: nil)
+            self.rope = RoPE(
+                dimensions: effectiveHeadDim,
+                traditional: false,
+                base: config.slidingRopeTheta,
+                scale: 1.0
+            )
         } else {
-            self.rope = ProportionalRoPE(
-                dims: effectiveHeadDim,
+            let fullRopeDim = Int(Float(effectiveHeadDim) * config.fullPartialRotaryFactor)
+            self.rope = RoPE(
+                dimensions: fullRopeDim,
                 traditional: false,
                 base: config.fullRopeTheta,
-                partialRotaryFactor: config.fullPartialRotaryFactor
+                scale: 1.0
             )
         }
 
@@ -914,6 +878,9 @@ public class Gemma4TextModel: Module, LLMModel, KVCacheDimensionProvider {
 
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
         var out = model(inputs, cache: cache)
+        if inputs.dim(1) > 1 {
+            out = out[0..., -1..., 0...]
+        }
         if let lmHead {
             out = lmHead(out)
         } else {
