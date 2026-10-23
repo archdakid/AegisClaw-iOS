@@ -879,7 +879,7 @@ public class Gemma4TextModel: Module, LLMModel, KVCacheDimensionProvider {
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
         var out = model(inputs, cache: cache)
         if inputs.dim(1) > 1 {
-            out = out[0..., -1..., 0...]
+            out = out[0..., -1, 0...].expandedDimensions(axis: 1)
         }
         if let lmHead {
             out = lmHead(out)
